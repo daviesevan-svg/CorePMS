@@ -146,8 +146,6 @@ defmodule HospexWeb.CalendarLive do
     end
   end
 
-  # ── Drag-create / Block-room ────────────────────────────────────
-
   def handle_event("quick_create", %{"room_id" => room_id, "start_col" => start_col,
                                      "nights" => nights, "x" => x, "y" => y}, socket) do
     start_date = Date.add(socket.assigns.anchor, start_col)
@@ -182,27 +180,6 @@ defmodule HospexWeb.CalendarLive do
     {:noreply, assign(socket, quick_create: nil, block_form: form)}
   end
 
-  # Base nightly rates per room-type group. Used as suggestions; the user
-  # can still override the rate field freely.
-  @nb_base_rates %{"std" => 170, "dlx" => 230, "sui" => 350, "fam" => 260}
-
-  @nb_channels [
-    {"direct",  "Direct / Walk-in"},
-    {"booking", "Booking.com"},
-    {"airbnb",  "Airbnb"},
-    {"expedia", "Expedia"}
-  ]
-
-  @nb_countries [
-    {"DE", "Germany"}, {"FR", "France"}, {"ES", "Spain"}, {"IT", "Italy"},
-    {"UK", "United Kingdom"}, {"US", "United States"}, {"JP", "Japan"},
-    {"BR", "Brazil"}, {"SE", "Sweden"}, {"NL", "Netherlands"}, {"PT", "Portugal"}
-  ]
-
-  def nb_channels,  do: @nb_channels
-  def nb_countries, do: @nb_countries
-  def nb_base_rate(type_id), do: Map.get(@nb_base_rates, type_id, 170)
-
   def handle_event("start_create_booking", _, %{assigns: %{quick_create: qc}} = socket) when not is_nil(qc) do
     end_date = Date.add(qc.start_date, qc.nights)
     type_id  = type_id_for_room(socket, qc.room_id) || "std"
@@ -216,8 +193,6 @@ defmodule HospexWeb.CalendarLive do
     {:noreply, assign(socket, new_booking: form, quick_create: nil)}
   end
 
-  # Open the new-booking drawer pre-filled with the selected booking's
-  # values, marked with `edit_id` so Save updates instead of creates.
   def handle_event("start_edit_booking", _, %{assigns: %{selected_booking: %{booking: b, rooms: rooms}}} = socket) do
     focused = socket.assigns.focused_stay_id
 
@@ -277,10 +252,9 @@ defmodule HospexWeb.CalendarLive do
        expanded_stays: MapSet.new()
      )}
   end
+
   def handle_event("start_edit_booking", _, socket), do: {:noreply, socket}
 
-  # Switch the edit form to a different stay of the same booking.
-  # Staged edits to other stays are preserved — Save applies them all.
   def handle_event("switch_edit_stay", %{"stay_id" => sid},
                    %{assigns: %{new_booking: %{edit_id: bid} = f}} = socket)
       when not is_nil(bid) do
@@ -305,14 +279,9 @@ defmodule HospexWeb.CalendarLive do
         end
     end
   end
+
   def handle_event("switch_edit_stay", _, socket), do: {:noreply, socket}
 
-  # Open the new-booking drawer to add a second/third room to an existing
-  # booking. Reuses the same form; Save calls add_stay_to_booking/2.
-  #
-  # Entry points: the detail drawer's "+ Add room" button (reads from
-  # @selected_booking) AND the edit drawer's "Add another room" link
-  # (reads from @new_booking.edit_id — discards unsaved edits).
   def handle_event("start_add_room", _, socket) do
     booking =
       case socket.assigns do
@@ -498,6 +467,583 @@ defmodule HospexWeb.CalendarLive do
         end
     end
   end
+
+  def handle_event("open_txn", %{"kind" => kind}, %{assigns: %{selected_booking: %{booking: b}}} = socket)
+      when kind in ["payment", "refund", "charge"] do
+    bal = b.total - b.paid
+    default_amount =
+      case kind do
+        "payment" -> max(0, bal)
+        "refund"  -> 0
+        "charge"  -> 0
+      end
+
+    {:noreply, assign(socket, :txn_form, %{
+      booking_id: b.id,
+      kind:       kind,
+      amount:     default_amount,
+      method:     "card",
+      note:       ""
+    })}
+  end
+
+  def handle_event("open_txn", _, socket), do: {:noreply, socket}
+
+  def handle_event("txn_cancel", _, socket), do: {:noreply, assign(socket, :txn_form, nil)}
+
+  def handle_event("txn_set_kind", %{"kind" => kind}, %{assigns: %{txn_form: f}} = socket)
+      when not is_nil(f) and kind in ["payment", "refund", "charge"] do
+    {:noreply, assign(socket, :txn_form, %{f | kind: kind})}
+  end
+
+  def handle_event("txn_change", params, %{assigns: %{txn_form: f}} = socket) when not is_nil(f) do
+    f =
+      f
+      |> maybe_put(params, "method")
+      |> maybe_put(params, "note")
+      |> maybe_put(params, "amount", &to_int/1)
+
+    {:noreply, assign(socket, :txn_form, f)}
+  end
+
+  def handle_event("txn_save", _, %{assigns: %{txn_form: f}} = socket) when not is_nil(f) do
+    cond do
+      f.amount <= 0 ->
+        {:noreply, assign(socket, :action_flash, "Amount must be greater than zero")}
+
+      true ->
+        :ok =
+          Bookings.add_transaction(f.booking_id, %{
+            kind:   String.to_atom(f.kind),
+            amount: f.amount,
+            method: f.method,
+            note:   f.note
+          })
+
+        socket =
+          socket
+          |> reload_bookings()
+          |> refresh_selected_booking()
+          |> assign(txn_form: nil,
+                    action_flash: "✓ #{String.capitalize(f.kind)} recorded · #{format_money(f.amount)}")
+
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("toggle_more_menu", _, socket) do
+    {:noreply, assign(socket, :more_menu_open, not socket.assigns.more_menu_open)}
+  end
+
+  def handle_event("close_more_menu", _, socket) do
+    {:noreply, assign(socket, :more_menu_open, false)}
+  end
+
+  def handle_event("cancel_booking", _, %{assigns: %{selected_booking: %{booking: b}}} = socket) do
+    :ok = Bookings.cancel_booking(b.id)
+
+    socket =
+      socket
+      |> reload_bookings()
+      |> assign(selected_booking: nil, focused_stay_id: nil,
+                more_menu_open: false,
+                action_flash: "✓ Booking #{b.ref} cancelled")
+
+    {:noreply, socket}
+  end
+
+  def handle_event("cancel_booking", _, socket), do: {:noreply, socket}
+
+  def handle_event("start_move_room", %{"stay_id" => sid}, socket) do
+    stay_id = String.to_integer(sid)
+    stay    = Enum.find(socket.assigns.all_stays, &(&1.id == stay_id))
+
+    if stay do
+      {:noreply, assign(socket, :move_form, %{
+        stay_id:        stay_id,
+        guest_name:     stay.guest_name,
+        current_room:   stay.room_id,
+        check_in:       stay.check_in,
+        nights:         stay.nights,
+        target_room_id: stay.room_id
+      })}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("move_cancel", _, socket), do: {:noreply, assign(socket, :move_form, nil)}
+
+  def handle_event("move_change", params, %{assigns: %{move_form: f}} = socket) when not is_nil(f) do
+    f = maybe_put(f, params, "target_room_id")
+    {:noreply, assign(socket, :move_form, f)}
+  end
+
+  def handle_event("move_save", _, %{assigns: %{move_form: f}} = socket) when not is_nil(f) do
+    cond do
+      f.target_room_id == f.current_room ->
+        {:noreply, assign(socket, :action_flash, "Pick a different room")}
+
+      true ->
+        :ok = Bookings.move_stay(f.stay_id, f.target_room_id)
+
+        socket =
+          socket
+          |> reload_bookings()
+          |> refresh_selected_booking()
+          |> assign(move_form: nil, quick_menu: nil,
+                    action_flash: "✓ Moved #{f.guest_name} to room #{room_num(f.target_room_id)}")
+
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("block_edit_change", params, socket) do
+    stage =
+      socket.assigns.block_edit
+      |> maybe_put(params, "notes")
+      |> maybe_put(params, "release_at")
+
+    {:noreply, assign(socket, :block_edit, stage)}
+  end
+
+  def handle_event("toggle_block_release_staged", _,
+                   %{assigns: %{selected_booking: %{booking: b}, block_edit: stage}} = socket) do
+    current = block_edit_release_on?(stage, b)
+
+    stage =
+      if current do
+        # Turning OFF — explicitly nil release.
+        Map.merge(stage, %{auto_release: false, release_at: ""})
+      else
+        # Turning ON — preload a sensible default (existing value if any,
+        # otherwise +24h from now) so the datetime input has something to
+        # show immediately.
+        default_dt =
+          Map.get(b, :block_release) ||
+            (NaiveDateTime.utc_now()
+             |> NaiveDateTime.add(24 * 3600, :second)
+             |> NaiveDateTime.truncate(:second))
+
+        Map.merge(stage, %{
+          auto_release: true,
+          release_at: NaiveDateTime.to_iso8601(default_dt) |> String.slice(0, 16)
+        })
+      end
+
+    {:noreply, assign(socket, :block_edit, stage)}
+  end
+
+  def handle_event("toggle_block_release_staged", _, socket), do: {:noreply, socket}
+
+  def handle_event("save_block_edit", _,
+                   %{assigns: %{selected_booking: %{booking: b}, block_edit: stage}} = socket) do
+    notes_changed?    = Map.has_key?(stage, :notes) and stage.notes != (Map.get(b, :notes) || "")
+    release_on?       = block_edit_release_on?(stage, b)
+    current_release   = Map.get(b, :block_release)
+    new_release_dt    = parse_block_release(release_on?, stage)
+    release_changed?  = new_release_dt != current_release
+
+    if notes_changed?, do: :ok = Bookings.update_notes(b.id, stage.notes)
+    if release_changed?, do: :ok = Bookings.set_block_release(b.id, new_release_dt)
+
+    flash =
+      cond do
+        notes_changed? and release_changed? -> "✓ Notes & auto-release saved"
+        notes_changed?                      -> "✓ Notes saved"
+        release_changed?                    -> "✓ Auto-release updated"
+        true                                -> "Nothing to save"
+      end
+
+    {:noreply,
+     socket
+     |> reload_bookings()
+     |> refresh_selected_booking()
+     |> assign(block_edit: %{}, action_flash: flash)}
+  end
+
+  def handle_event("save_block_edit", _, socket), do: {:noreply, socket}
+
+  def handle_event("save_notes", %{"notes" => notes},
+                   %{assigns: %{selected_booking: %{booking: b}}} = socket) do
+    :ok = Bookings.update_notes(b.id, notes)
+
+    {:noreply,
+     socket
+     |> reload_bookings()
+     |> refresh_selected_booking()
+     |> assign(:action_flash, "✓ Notes saved")}
+  end
+
+  def handle_event("save_notes", _, socket), do: {:noreply, socket}
+
+  def handle_event("delete_block", _, %{assigns: %{selected_booking: %{booking: %{id: id, ref: ref}}}} = socket) do
+    :ok = Bookings.delete_booking(id)
+
+    {:noreply,
+     socket
+     |> reload_bookings()
+     |> assign(selected_booking: nil, focused_stay_id: nil,
+               more_menu_open: false,
+               action_flash: "✓ Block #{ref} removed")}
+  end
+
+  def handle_event("delete_block", _, socket), do: {:noreply, socket}
+
+  def handle_event("propose_stay_change", %{"stay_id" => sid} = params, socket) do
+    stay_id = String.to_integer(sid)
+    stay    = Enum.find(socket.assigns.all_stays, &(&1.id == stay_id))
+    booking =
+      stay && Enum.find(socket.assigns.all_bookings, &(&1.id == stay.booking_id))
+
+    if is_nil(stay) or is_nil(booking) do
+      {:noreply, socket}
+    else
+      delta_start = to_int_signed(Map.get(params, "delta_start", 0))
+      delta_end   = to_int_signed(Map.get(params, "delta_end", 0))
+      new_room_id = Map.get(params, "room_id") |> blank_to_nil()
+
+      new_check_in = Date.add(stay.check_in, delta_start)
+      new_nights   = max(1, stay.nights + delta_end - delta_start)
+
+      old_subtotal     = stay_subtotal(stay, booking)
+      rate_per_night   = if stay.nights > 0, do: div(old_subtotal, stay.nights), else: 0
+      auto_new_subtotal = rate_per_night * new_nights
+
+      pending = %{
+        stay_id:        stay_id,
+        booking_id:     booking.id,
+        # Original state
+        old_room_id:    stay.room_id,
+        old_check_in:   stay.check_in,
+        old_check_out:  Date.add(stay.check_in, stay.nights),
+        old_nights:     stay.nights,
+        old_subtotal:   old_subtotal,
+        # Proposed state
+        new_room_id:    new_room_id || stay.room_id,
+        new_check_in:   new_check_in,
+        new_check_out:  Date.add(new_check_in, new_nights),
+        new_nights:     new_nights,
+        rate_per_night: rate_per_night,
+        # Custom price (editable by the user before confirming).
+        new_subtotal:   auto_new_subtotal,
+        # Has the user touched the price field? If not, keep deriving it
+        # from rate × nights.
+        price_touched:  false,
+        # Stored deltas needed by the context update.
+        delta_start:    delta_start,
+        delta_end:      delta_end,
+        # Popover anchor (mouseup coords).
+        x:              to_int_signed(Map.get(params, "x", 0)),
+        y:              to_int_signed(Map.get(params, "y", 0))
+      }
+
+      {:noreply, socket |> assign(:pending_drag, pending) |> derive_view()}
+    end
+  end
+
+  def handle_event("cancel_stay_change", _, socket) do
+    {:noreply, socket |> assign(:pending_drag, nil) |> derive_view()}
+  end
+
+  def handle_event("confirm_stay_change", _, %{assigns: %{pending_drag: p}} = socket)
+      when not is_nil(p) do
+    changes = %{
+      delta_start: p.delta_start,
+      delta_end:   p.delta_end,
+      subtotal:    p.new_subtotal
+    }
+    changes =
+      if p.new_room_id != p.old_room_id,
+        do: Map.put(changes, :room_id, p.new_room_id),
+        else: changes
+
+    :ok = Bookings.update_stay_position(p.stay_id, changes)
+
+    # No reset_pill push needed here — reload_bookings will re-render the
+    # pill at its new server-side geometry, and morphdom will overwrite
+    # the inline transform/width/class as part of that diff.
+    {:noreply,
+     socket
+     |> reload_bookings()
+     |> refresh_selected_booking()
+     |> assign(pending_drag: nil, action_flash: "✓ Stay updated")}
+  end
+
+  def handle_event("confirm_stay_change", _, socket), do: {:noreply, socket}
+
+  def handle_event("pending_drag_price", %{"new_subtotal" => v},
+                   %{assigns: %{pending_drag: p}} = socket) when not is_nil(p) do
+    {:noreply,
+     assign(socket, :pending_drag, %{p | new_subtotal: to_int_signed(v), price_touched: true})}
+  end
+
+  def handle_event("pending_drag_price", _, socket), do: {:noreply, socket}
+
+  def handle_event("search_change", %{"q" => q}, socket) do
+    {:noreply, socket |> assign(:search_query, q) |> derive_view()}
+  end
+
+  def handle_event("set_filter_room_type", %{"id" => id}, socket) do
+    value = if id == "", do: nil, else: id
+    {:noreply, socket |> assign(:filter_room_type, value) |> derive_view()}
+  end
+
+  def handle_event("set_filter_status", %{"status" => s}, socket) do
+    value = if s == "", do: nil, else: String.to_atom(s)
+    {:noreply, socket |> assign(:filter_status, value) |> derive_view()}
+  end
+
+  def handle_event("block_cancel", _, socket) do
+    {:noreply, assign(socket, :block_form, nil)}
+  end
+
+  def handle_event("block_change", params, %{assigns: %{block_form: f}} = socket) when not is_nil(f) do
+    f =
+      f
+      |> maybe_put_date(params, "start_date")
+      |> maybe_put_date(params, "end_date")
+      |> maybe_put(params, "reason")
+      |> maybe_put(params, "blocked_by")
+      |> maybe_put_naive(params, "release_at")
+
+    {:noreply, assign(socket, :block_form, f)}
+  end
+
+  def handle_event("block_toggle_release", _, %{assigns: %{block_form: f}} = socket) when not is_nil(f) do
+    {:noreply, assign(socket, :block_form, %{f | auto_release: not f.auto_release})}
+  end
+
+  def handle_event("block_save", _, %{assigns: %{block_form: f}} = socket) when not is_nil(f) do
+    nights = Date.diff(f.end_date, f.start_date)
+
+    if nights <= 0 do
+      {:noreply, assign(socket, :action_flash, "Block needs at least one night")}
+    else
+      socket = add_block_booking(socket, f, nights)
+      msg = "Room blocked · #{nights} night#{if nights > 1, do: "s", else: ""}"
+      {:noreply, assign(socket, block_form: nil, action_flash: msg)}
+    end
+  end
+
+  def handle_event("start_checkin", %{"id" => id_str}, socket) do
+    stay_id = String.to_integer(id_str)
+    stay    = Enum.find(socket.assigns.visible_stays_flat, &(&1.id == stay_id))
+
+    if stay do
+      details = BookingDetails.details_for(
+        Enum.find(socket.assigns.all_bookings, &(&1.id == stay.booking_id))
+      )
+
+      wizard = %{
+        stay_id: stay_id,
+        step:    1,
+        guest:   stay.guest_name,
+        total:   stay.total,
+        paid:    stay.paid,
+        balance: stay.total - stay.paid,
+        data: %{
+          doc_type:       "passport",
+          doc_number:     "",
+          doc_country:    details.country_code,
+          doc_uploaded:   false,
+          email:          details.email,
+          phone:          details.phone,
+          email_consent:  true,
+          payment_method: "card",
+          payment_amount: stay.total - stay.paid,
+          skip_payment:   false
+        }
+      }
+
+      {:noreply, assign(socket, checkin_wizard: wizard, quick_menu: nil)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("wizard_back", _, %{assigns: %{checkin_wizard: w}} = socket) when not is_nil(w) do
+    {:noreply, assign(socket, :checkin_wizard, %{w | step: max(1, w.step - 1)})}
+  end
+
+  def handle_event("wizard_next", _, %{assigns: %{checkin_wizard: w}} = socket) when not is_nil(w) do
+    {:noreply, assign(socket, :checkin_wizard, %{w | step: min(3, w.step + 1)})}
+  end
+
+  def handle_event("wizard_cancel", _, socket) do
+    {:noreply, assign(socket, :checkin_wizard, nil)}
+  end
+
+  def handle_event("wizard_change", params, %{assigns: %{checkin_wizard: w}} = socket) when not is_nil(w) do
+    data =
+      w.data
+      |> maybe_put(params, "doc_type")
+      |> maybe_put(params, "doc_number")
+      |> maybe_put(params, "doc_country")
+      |> maybe_put(params, "email")
+      |> maybe_put(params, "phone")
+      |> maybe_put(params, "payment_method")
+      |> maybe_put(params, "payment_amount", &to_int/1)
+
+    {:noreply, assign(socket, :checkin_wizard, %{w | data: data})}
+  end
+
+  def handle_event("wizard_toggle", %{"field" => field}, %{assigns: %{checkin_wizard: w}} = socket) when not is_nil(w) do
+    key      = String.to_existing_atom(field)
+    current  = Map.get(w.data, key, false)
+    {:noreply, assign(socket, :checkin_wizard, %{w | data: Map.put(w.data, key, not current)})}
+  end
+
+  def handle_event("wizard_upload_sim", _, %{assigns: %{checkin_wizard: w}} = socket) when not is_nil(w) do
+    {:noreply, assign(socket, :checkin_wizard, %{w | data: %{w.data | doc_uploaded: true}})}
+  end
+
+  def handle_event("wizard_complete", _, %{assigns: %{checkin_wizard: w}} = socket) when not is_nil(w) do
+    socket =
+      socket
+      |> apply_wizard_payment(w)
+      |> update_stay_status(w.stay_id, :in)
+      |> assign(checkin_wizard: nil,
+                action_flash: "✓ Checked in #{w.guest}")
+
+    {:noreply, socket}
+  end
+
+  def handle_event("dismiss_flash", _, socket) do
+    {:noreply, assign(socket, :action_flash, nil)}
+  end
+
+  def handle_event("select_booking", %{"id" => id_str}, socket) do
+    stay_id = String.to_integer(id_str)
+    stay    = Enum.find(socket.assigns.visible_stays_flat, &(&1.id == stay_id))
+    booking = stay && Enum.find(socket.assigns.all_bookings, &(&1.id == stay.booking_id))
+
+    selected =
+      if booking do
+        today = socket.assigns.today
+        rooms_by_id = Map.new(socket.assigns.all_rooms, &{&1.id, &1})
+        group_by_room =
+          for g <- socket.assigns.room_groups, r <- g.rooms, into: %{}, do: {r.id, g}
+
+        details = BookingDetails.details_for(booking)
+
+        room_rows =
+          for s <- booking.stays do
+            %{
+              stay:      s,
+              room:      Map.get(rooms_by_id, s.room_id),
+              group:     Map.get(group_by_room, s.room_id),
+              check_out: Date.add(s.check_in, s.nights),
+              subtotal:  s.nights * details.rate_per_night
+            }
+          end
+
+        %{
+          booking:    booking,
+          rooms:      room_rows,
+          multi_room: length(booking.stays) > 1,
+          details:    details,
+          txns:       merge_txns(BookingDetails.txns_for(booking, today), booking),
+          events:     real_events(booking, today)
+        }
+      else
+        nil
+      end
+
+    expanded =
+      if selected && selected.multi_room do
+        MapSet.new([stay_id])
+      else
+        # Single-room bookings: expand the sole stay so details are visible.
+        case selected do
+          %{rooms: [only]} -> MapSet.new([only.stay.id])
+          _ -> MapSet.new()
+        end
+      end
+
+    {:noreply,
+     assign(socket,
+       selected_booking: selected,
+       drawer_tab: "details",
+       focused_stay_id: stay_id,
+       expanded_stays: expanded,
+       quick_menu: nil,
+       block_edit: %{}
+     )}
+  end
+
+  def handle_event("close_booking", _, socket) do
+    {:noreply, assign(socket, selected_booking: nil, focused_stay_id: nil, expanded_stays: MapSet.new(), block_edit: %{})}
+  end
+
+  def handle_event("set_drawer_tab", %{"tab" => tab}, socket)
+      when tab in ["details", "payments", "history"] do
+    {:noreply, assign(socket, :drawer_tab, tab)}
+  end
+
+  def handle_event("toggle_stay", %{"id" => id_str}, socket) do
+    id = String.to_integer(id_str)
+    expanded =
+      if MapSet.member?(socket.assigns.expanded_stays, id) do
+        MapSet.delete(socket.assigns.expanded_stays, id)
+      else
+        MapSet.put(socket.assigns.expanded_stays, id)
+      end
+
+    {:noreply, assign(socket, :expanded_stays, expanded)}
+  end
+
+  def handle_event("toggle_rate_breakdown", %{"id" => id_str}, socket) do
+    id = String.to_integer(id_str)
+    open =
+      if MapSet.member?(socket.assigns.rate_breakdown_open, id) do
+        MapSet.delete(socket.assigns.rate_breakdown_open, id)
+      else
+        MapSet.put(socket.assigns.rate_breakdown_open, id)
+      end
+
+    {:noreply, assign(socket, :rate_breakdown_open, open)}
+  end
+
+
+  # ── Drag-create / Block-room ────────────────────────────────────
+
+
+  # Base nightly rates per room-type group. Used as suggestions; the user
+  # can still override the rate field freely.
+  @nb_base_rates %{"std" => 170, "dlx" => 230, "sui" => 350, "fam" => 260}
+
+  @nb_channels [
+    {"direct",  "Direct / Walk-in"},
+    {"booking", "Booking.com"},
+    {"airbnb",  "Airbnb"},
+    {"expedia", "Expedia"}
+  ]
+
+  @nb_countries [
+    {"DE", "Germany"}, {"FR", "France"}, {"ES", "Spain"}, {"IT", "Italy"},
+    {"UK", "United Kingdom"}, {"US", "United States"}, {"JP", "Japan"},
+    {"BR", "Brazil"}, {"SE", "Sweden"}, {"NL", "Netherlands"}, {"PT", "Portugal"}
+  ]
+
+  def nb_channels,  do: @nb_channels
+  def nb_countries, do: @nb_countries
+  def nb_base_rate(type_id), do: Map.get(@nb_base_rates, type_id, 170)
+
+
+  # Open the new-booking drawer pre-filled with the selected booking's
+  # values, marked with `edit_id` so Save updates instead of creates.
+
+  # Switch the edit form to a different stay of the same booking.
+  # Staged edits to other stays are preserved — Save applies them all.
+
+  # Open the new-booking drawer to add a second/third room to an existing
+  # booking. Reuses the same form; Save calls add_stay_to_booking/2.
+  #
+  # Entry points: the detail drawer's "+ Add room" button (reads from
+  # @selected_booking) AND the edit drawer's "Add another room" link
+  # (reads from @new_booking.edit_id — discards unsaved edits).
+
 
   # ── New-booking helpers ─────────────────────────────────────────
 
@@ -733,139 +1279,15 @@ defmodule HospexWeb.CalendarLive do
 
   # ── Transaction modal (payment / refund / charge) ────────────
 
-  def handle_event("open_txn", %{"kind" => kind}, %{assigns: %{selected_booking: %{booking: b}}} = socket)
-      when kind in ["payment", "refund", "charge"] do
-    bal = b.total - b.paid
-    default_amount =
-      case kind do
-        "payment" -> max(0, bal)
-        "refund"  -> 0
-        "charge"  -> 0
-      end
-
-    {:noreply, assign(socket, :txn_form, %{
-      booking_id: b.id,
-      kind:       kind,
-      amount:     default_amount,
-      method:     "card",
-      note:       ""
-    })}
-  end
-  def handle_event("open_txn", _, socket), do: {:noreply, socket}
-
-  def handle_event("txn_cancel", _, socket), do: {:noreply, assign(socket, :txn_form, nil)}
-
-  def handle_event("txn_set_kind", %{"kind" => kind}, %{assigns: %{txn_form: f}} = socket)
-      when not is_nil(f) and kind in ["payment", "refund", "charge"] do
-    {:noreply, assign(socket, :txn_form, %{f | kind: kind})}
-  end
-
-  def handle_event("txn_change", params, %{assigns: %{txn_form: f}} = socket) when not is_nil(f) do
-    f =
-      f
-      |> maybe_put(params, "method")
-      |> maybe_put(params, "note")
-      |> maybe_put(params, "amount", &to_int/1)
-
-    {:noreply, assign(socket, :txn_form, f)}
-  end
-
-  def handle_event("txn_save", _, %{assigns: %{txn_form: f}} = socket) when not is_nil(f) do
-    cond do
-      f.amount <= 0 ->
-        {:noreply, assign(socket, :action_flash, "Amount must be greater than zero")}
-
-      true ->
-        :ok =
-          Bookings.add_transaction(f.booking_id, %{
-            kind:   String.to_atom(f.kind),
-            amount: f.amount,
-            method: f.method,
-            note:   f.note
-          })
-
-        socket =
-          socket
-          |> reload_bookings()
-          |> refresh_selected_booking()
-          |> assign(txn_form: nil,
-                    action_flash: "✓ #{String.capitalize(f.kind)} recorded · #{format_money(f.amount)}")
-
-        {:noreply, socket}
-    end
-  end
 
   # ── More menu (toolbar three-dot) ────────────────────────────
 
-  def handle_event("toggle_more_menu", _, socket) do
-    {:noreply, assign(socket, :more_menu_open, not socket.assigns.more_menu_open)}
-  end
-
-  def handle_event("close_more_menu", _, socket) do
-    {:noreply, assign(socket, :more_menu_open, false)}
-  end
 
   # ── Cancel booking ───────────────────────────────────────────
 
-  def handle_event("cancel_booking", _, %{assigns: %{selected_booking: %{booking: b}}} = socket) do
-    :ok = Bookings.cancel_booking(b.id)
-
-    socket =
-      socket
-      |> reload_bookings()
-      |> assign(selected_booking: nil, focused_stay_id: nil,
-                more_menu_open: false,
-                action_flash: "✓ Booking #{b.ref} cancelled")
-
-    {:noreply, socket}
-  end
-  def handle_event("cancel_booking", _, socket), do: {:noreply, socket}
 
   # ── Move room ────────────────────────────────────────────────
 
-  def handle_event("start_move_room", %{"stay_id" => sid}, socket) do
-    stay_id = String.to_integer(sid)
-    stay    = Enum.find(socket.assigns.all_stays, &(&1.id == stay_id))
-
-    if stay do
-      {:noreply, assign(socket, :move_form, %{
-        stay_id:        stay_id,
-        guest_name:     stay.guest_name,
-        current_room:   stay.room_id,
-        check_in:       stay.check_in,
-        nights:         stay.nights,
-        target_room_id: stay.room_id
-      })}
-    else
-      {:noreply, socket}
-    end
-  end
-
-  def handle_event("move_cancel", _, socket), do: {:noreply, assign(socket, :move_form, nil)}
-
-  def handle_event("move_change", params, %{assigns: %{move_form: f}} = socket) when not is_nil(f) do
-    f = maybe_put(f, params, "target_room_id")
-    {:noreply, assign(socket, :move_form, f)}
-  end
-
-  def handle_event("move_save", _, %{assigns: %{move_form: f}} = socket) when not is_nil(f) do
-    cond do
-      f.target_room_id == f.current_room ->
-        {:noreply, assign(socket, :action_flash, "Pick a different room")}
-
-      true ->
-        :ok = Bookings.move_stay(f.stay_id, f.target_room_id)
-
-        socket =
-          socket
-          |> reload_bookings()
-          |> refresh_selected_booking()
-          |> assign(move_form: nil, quick_menu: nil,
-                    action_flash: "✓ Moved #{f.guest_name} to room #{room_num(f.target_room_id)}")
-
-        {:noreply, socket}
-    end
-  end
 
   defp room_num("r" <> n), do: n
   defp room_num(other),    do: other
@@ -912,84 +1334,12 @@ defmodule HospexWeb.CalendarLive do
   # Stage a field edit from the unified block-edit form (notes,
   # auto-release toggle, release datetime). Nothing persists until the
   # user clicks Save changes.
-  def handle_event("block_edit_change", params, socket) do
-    stage =
-      socket.assigns.block_edit
-      |> maybe_put(params, "notes")
-      |> maybe_put(params, "release_at")
-
-    {:noreply, assign(socket, :block_edit, stage)}
-  end
 
   # Toggle the auto-release flag in the staged form (still not persisted).
-  def handle_event("toggle_block_release_staged", _,
-                   %{assigns: %{selected_booking: %{booking: b}, block_edit: stage}} = socket) do
-    current = block_edit_release_on?(stage, b)
-
-    stage =
-      if current do
-        # Turning OFF — explicitly nil release.
-        Map.merge(stage, %{auto_release: false, release_at: ""})
-      else
-        # Turning ON — preload a sensible default (existing value if any,
-        # otherwise +24h from now) so the datetime input has something to
-        # show immediately.
-        default_dt =
-          Map.get(b, :block_release) ||
-            (NaiveDateTime.utc_now()
-             |> NaiveDateTime.add(24 * 3600, :second)
-             |> NaiveDateTime.truncate(:second))
-
-        Map.merge(stage, %{
-          auto_release: true,
-          release_at: NaiveDateTime.to_iso8601(default_dt) |> String.slice(0, 16)
-        })
-      end
-
-    {:noreply, assign(socket, :block_edit, stage)}
-  end
-  def handle_event("toggle_block_release_staged", _, socket), do: {:noreply, socket}
 
   # Commit both notes and auto-release changes in one go.
-  def handle_event("save_block_edit", _,
-                   %{assigns: %{selected_booking: %{booking: b}, block_edit: stage}} = socket) do
-    notes_changed?    = Map.has_key?(stage, :notes) and stage.notes != (Map.get(b, :notes) || "")
-    release_on?       = block_edit_release_on?(stage, b)
-    current_release   = Map.get(b, :block_release)
-    new_release_dt    = parse_block_release(release_on?, stage)
-    release_changed?  = new_release_dt != current_release
-
-    if notes_changed?, do: :ok = Bookings.update_notes(b.id, stage.notes)
-    if release_changed?, do: :ok = Bookings.set_block_release(b.id, new_release_dt)
-
-    flash =
-      cond do
-        notes_changed? and release_changed? -> "✓ Notes & auto-release saved"
-        notes_changed?                      -> "✓ Notes saved"
-        release_changed?                    -> "✓ Auto-release updated"
-        true                                -> "Nothing to save"
-      end
-
-    {:noreply,
-     socket
-     |> reload_bookings()
-     |> refresh_selected_booking()
-     |> assign(block_edit: %{}, action_flash: flash)}
-  end
-  def handle_event("save_block_edit", _, socket), do: {:noreply, socket}
 
   # Booking (non-hold) standalone notes save — still its own form.
-  def handle_event("save_notes", %{"notes" => notes},
-                   %{assigns: %{selected_booking: %{booking: b}}} = socket) do
-    :ok = Bookings.update_notes(b.id, notes)
-
-    {:noreply,
-     socket
-     |> reload_bookings()
-     |> refresh_selected_booking()
-     |> assign(:action_flash, "✓ Notes saved")}
-  end
-  def handle_event("save_notes", _, socket), do: {:noreply, socket}
 
   # Resolve the effective release-on flag for the form: staged value if
   # the user toggled it, otherwise derived from the booking's current
@@ -1032,17 +1382,6 @@ defmodule HospexWeb.CalendarLive do
 
   # ── Delete block (hard remove from store) ────────────────────
 
-  def handle_event("delete_block", _, %{assigns: %{selected_booking: %{booking: %{id: id, ref: ref}}}} = socket) do
-    :ok = Bookings.delete_booking(id)
-
-    {:noreply,
-     socket
-     |> reload_bookings()
-     |> assign(selected_booking: nil, focused_stay_id: nil,
-               more_menu_open: false,
-               action_flash: "✓ Block #{ref} removed")}
-  end
-  def handle_event("delete_block", _, socket), do: {:noreply, socket}
 
   # Friendly countdown like "2 days · 3h" or "5h · 20m" or "in the past".
   def block_release_countdown(nil, _now), do: nil
@@ -1070,93 +1409,6 @@ defmodule HospexWeb.CalendarLive do
   # before/after summary + price delta and surface a popup; the user
   # confirms or cancels.
 
-  def handle_event("propose_stay_change", %{"stay_id" => sid} = params, socket) do
-    stay_id = String.to_integer(sid)
-    stay    = Enum.find(socket.assigns.all_stays, &(&1.id == stay_id))
-    booking =
-      stay && Enum.find(socket.assigns.all_bookings, &(&1.id == stay.booking_id))
-
-    if is_nil(stay) or is_nil(booking) do
-      {:noreply, socket}
-    else
-      delta_start = to_int_signed(Map.get(params, "delta_start", 0))
-      delta_end   = to_int_signed(Map.get(params, "delta_end", 0))
-      new_room_id = Map.get(params, "room_id") |> blank_to_nil()
-
-      new_check_in = Date.add(stay.check_in, delta_start)
-      new_nights   = max(1, stay.nights + delta_end - delta_start)
-
-      old_subtotal     = stay_subtotal(stay, booking)
-      rate_per_night   = if stay.nights > 0, do: div(old_subtotal, stay.nights), else: 0
-      auto_new_subtotal = rate_per_night * new_nights
-
-      pending = %{
-        stay_id:        stay_id,
-        booking_id:     booking.id,
-        # Original state
-        old_room_id:    stay.room_id,
-        old_check_in:   stay.check_in,
-        old_check_out:  Date.add(stay.check_in, stay.nights),
-        old_nights:     stay.nights,
-        old_subtotal:   old_subtotal,
-        # Proposed state
-        new_room_id:    new_room_id || stay.room_id,
-        new_check_in:   new_check_in,
-        new_check_out:  Date.add(new_check_in, new_nights),
-        new_nights:     new_nights,
-        rate_per_night: rate_per_night,
-        # Custom price (editable by the user before confirming).
-        new_subtotal:   auto_new_subtotal,
-        # Has the user touched the price field? If not, keep deriving it
-        # from rate × nights.
-        price_touched:  false,
-        # Stored deltas needed by the context update.
-        delta_start:    delta_start,
-        delta_end:      delta_end,
-        # Popover anchor (mouseup coords).
-        x:              to_int_signed(Map.get(params, "x", 0)),
-        y:              to_int_signed(Map.get(params, "y", 0))
-      }
-
-      {:noreply, socket |> assign(:pending_drag, pending) |> derive_view()}
-    end
-  end
-
-  def handle_event("cancel_stay_change", _, socket) do
-    {:noreply, socket |> assign(:pending_drag, nil) |> derive_view()}
-  end
-
-  def handle_event("confirm_stay_change", _, %{assigns: %{pending_drag: p}} = socket)
-      when not is_nil(p) do
-    changes = %{
-      delta_start: p.delta_start,
-      delta_end:   p.delta_end,
-      subtotal:    p.new_subtotal
-    }
-    changes =
-      if p.new_room_id != p.old_room_id,
-        do: Map.put(changes, :room_id, p.new_room_id),
-        else: changes
-
-    :ok = Bookings.update_stay_position(p.stay_id, changes)
-
-    # No reset_pill push needed here — reload_bookings will re-render the
-    # pill at its new server-side geometry, and morphdom will overwrite
-    # the inline transform/width/class as part of that diff.
-    {:noreply,
-     socket
-     |> reload_bookings()
-     |> refresh_selected_booking()
-     |> assign(pending_drag: nil, action_flash: "✓ Stay updated")}
-  end
-  def handle_event("confirm_stay_change", _, socket), do: {:noreply, socket}
-
-  def handle_event("pending_drag_price", %{"new_subtotal" => v},
-                   %{assigns: %{pending_drag: p}} = socket) when not is_nil(p) do
-    {:noreply,
-     assign(socket, :pending_drag, %{p | new_subtotal: to_int_signed(v), price_touched: true})}
-  end
-  def handle_event("pending_drag_price", _, socket), do: {:noreply, socket}
 
   defp stay_subtotal(stay, booking) do
     Map.get(stay, :subtotal) || div(booking.total, max(length(booking.stays), 1))
@@ -1185,19 +1437,6 @@ defmodule HospexWeb.CalendarLive do
 
   # ── Search / filter chips ────────────────────────────────────
 
-  def handle_event("search_change", %{"q" => q}, socket) do
-    {:noreply, socket |> assign(:search_query, q) |> derive_view()}
-  end
-
-  def handle_event("set_filter_room_type", %{"id" => id}, socket) do
-    value = if id == "", do: nil, else: id
-    {:noreply, socket |> assign(:filter_room_type, value) |> derive_view()}
-  end
-
-  def handle_event("set_filter_status", %{"status" => s}, socket) do
-    value = if s == "", do: nil, else: String.to_atom(s)
-    {:noreply, socket |> assign(:filter_status, value) |> derive_view()}
-  end
 
   # Find any stay belonging to the booking and run the standard
   # select_booking flow so the detail drawer reopens with fresh state.
@@ -1269,37 +1508,6 @@ defmodule HospexWeb.CalendarLive do
     "Recorded #{Calendar.strftime(t.created_at, "%b %-d · %H:%M")}"
   end
 
-  def handle_event("block_cancel", _, socket) do
-    {:noreply, assign(socket, :block_form, nil)}
-  end
-
-  def handle_event("block_change", params, %{assigns: %{block_form: f}} = socket) when not is_nil(f) do
-    f =
-      f
-      |> maybe_put_date(params, "start_date")
-      |> maybe_put_date(params, "end_date")
-      |> maybe_put(params, "reason")
-      |> maybe_put(params, "blocked_by")
-      |> maybe_put_naive(params, "release_at")
-
-    {:noreply, assign(socket, :block_form, f)}
-  end
-
-  def handle_event("block_toggle_release", _, %{assigns: %{block_form: f}} = socket) when not is_nil(f) do
-    {:noreply, assign(socket, :block_form, %{f | auto_release: not f.auto_release})}
-  end
-
-  def handle_event("block_save", _, %{assigns: %{block_form: f}} = socket) when not is_nil(f) do
-    nights = Date.diff(f.end_date, f.start_date)
-
-    if nights <= 0 do
-      {:noreply, assign(socket, :action_flash, "Block needs at least one night")}
-    else
-      socket = add_block_booking(socket, f, nights)
-      msg = "Room blocked · #{nights} night#{if nights > 1, do: "s", else: ""}"
-      {:noreply, assign(socket, block_form: nil, action_flash: msg)}
-    end
-  end
 
   defp add_block_booking(socket, f, _nights) do
     {:ok, _view} = Bookings.create_block_booking(f)
@@ -1336,88 +1544,6 @@ defmodule HospexWeb.CalendarLive do
 
   # ── Check-in wizard ─────────────────────────────────────────────
 
-  def handle_event("start_checkin", %{"id" => id_str}, socket) do
-    stay_id = String.to_integer(id_str)
-    stay    = Enum.find(socket.assigns.visible_stays_flat, &(&1.id == stay_id))
-
-    if stay do
-      details = BookingDetails.details_for(
-        Enum.find(socket.assigns.all_bookings, &(&1.id == stay.booking_id))
-      )
-
-      wizard = %{
-        stay_id: stay_id,
-        step:    1,
-        guest:   stay.guest_name,
-        total:   stay.total,
-        paid:    stay.paid,
-        balance: stay.total - stay.paid,
-        data: %{
-          doc_type:       "passport",
-          doc_number:     "",
-          doc_country:    details.country_code,
-          doc_uploaded:   false,
-          email:          details.email,
-          phone:          details.phone,
-          email_consent:  true,
-          payment_method: "card",
-          payment_amount: stay.total - stay.paid,
-          skip_payment:   false
-        }
-      }
-
-      {:noreply, assign(socket, checkin_wizard: wizard, quick_menu: nil)}
-    else
-      {:noreply, socket}
-    end
-  end
-
-  def handle_event("wizard_back", _, %{assigns: %{checkin_wizard: w}} = socket) when not is_nil(w) do
-    {:noreply, assign(socket, :checkin_wizard, %{w | step: max(1, w.step - 1)})}
-  end
-
-  def handle_event("wizard_next", _, %{assigns: %{checkin_wizard: w}} = socket) when not is_nil(w) do
-    {:noreply, assign(socket, :checkin_wizard, %{w | step: min(3, w.step + 1)})}
-  end
-
-  def handle_event("wizard_cancel", _, socket) do
-    {:noreply, assign(socket, :checkin_wizard, nil)}
-  end
-
-  def handle_event("wizard_change", params, %{assigns: %{checkin_wizard: w}} = socket) when not is_nil(w) do
-    data =
-      w.data
-      |> maybe_put(params, "doc_type")
-      |> maybe_put(params, "doc_number")
-      |> maybe_put(params, "doc_country")
-      |> maybe_put(params, "email")
-      |> maybe_put(params, "phone")
-      |> maybe_put(params, "payment_method")
-      |> maybe_put(params, "payment_amount", &to_int/1)
-
-    {:noreply, assign(socket, :checkin_wizard, %{w | data: data})}
-  end
-
-  def handle_event("wizard_toggle", %{"field" => field}, %{assigns: %{checkin_wizard: w}} = socket) when not is_nil(w) do
-    key      = String.to_existing_atom(field)
-    current  = Map.get(w.data, key, false)
-    {:noreply, assign(socket, :checkin_wizard, %{w | data: Map.put(w.data, key, not current)})}
-  end
-
-  def handle_event("wizard_upload_sim", _, %{assigns: %{checkin_wizard: w}} = socket) when not is_nil(w) do
-    {:noreply, assign(socket, :checkin_wizard, %{w | data: %{w.data | doc_uploaded: true}})}
-  end
-
-  def handle_event("wizard_complete", _, %{assigns: %{checkin_wizard: w}} = socket) when not is_nil(w) do
-    socket =
-      socket
-      |> apply_wizard_payment(w)
-      |> update_stay_status(w.stay_id, :in)
-      |> assign(checkin_wizard: nil,
-                action_flash: "✓ Checked in #{w.guest}")
-
-    {:noreply, socket}
-  end
 
   defp maybe_put(map, params, key, transform \\ & &1) do
     case Map.fetch(params, key) do
@@ -1442,101 +1568,6 @@ defmodule HospexWeb.CalendarLive do
     reload_bookings(socket)
   end
 
-  def handle_event("dismiss_flash", _, socket) do
-    {:noreply, assign(socket, :action_flash, nil)}
-  end
-
-  def handle_event("select_booking", %{"id" => id_str}, socket) do
-    stay_id = String.to_integer(id_str)
-    stay    = Enum.find(socket.assigns.visible_stays_flat, &(&1.id == stay_id))
-    booking = stay && Enum.find(socket.assigns.all_bookings, &(&1.id == stay.booking_id))
-
-    selected =
-      if booking do
-        today = socket.assigns.today
-        rooms_by_id = Map.new(socket.assigns.all_rooms, &{&1.id, &1})
-        group_by_room =
-          for g <- socket.assigns.room_groups, r <- g.rooms, into: %{}, do: {r.id, g}
-
-        details = BookingDetails.details_for(booking)
-
-        room_rows =
-          for s <- booking.stays do
-            %{
-              stay:      s,
-              room:      Map.get(rooms_by_id, s.room_id),
-              group:     Map.get(group_by_room, s.room_id),
-              check_out: Date.add(s.check_in, s.nights),
-              subtotal:  s.nights * details.rate_per_night
-            }
-          end
-
-        %{
-          booking:    booking,
-          rooms:      room_rows,
-          multi_room: length(booking.stays) > 1,
-          details:    details,
-          txns:       merge_txns(BookingDetails.txns_for(booking, today), booking),
-          events:     real_events(booking, today)
-        }
-      else
-        nil
-      end
-
-    expanded =
-      if selected && selected.multi_room do
-        MapSet.new([stay_id])
-      else
-        # Single-room bookings: expand the sole stay so details are visible.
-        case selected do
-          %{rooms: [only]} -> MapSet.new([only.stay.id])
-          _ -> MapSet.new()
-        end
-      end
-
-    {:noreply,
-     assign(socket,
-       selected_booking: selected,
-       drawer_tab: "details",
-       focused_stay_id: stay_id,
-       expanded_stays: expanded,
-       quick_menu: nil,
-       block_edit: %{}
-     )}
-  end
-
-  def handle_event("close_booking", _, socket) do
-    {:noreply, assign(socket, selected_booking: nil, focused_stay_id: nil, expanded_stays: MapSet.new(), block_edit: %{})}
-  end
-
-  def handle_event("set_drawer_tab", %{"tab" => tab}, socket)
-      when tab in ["details", "payments", "history"] do
-    {:noreply, assign(socket, :drawer_tab, tab)}
-  end
-
-  def handle_event("toggle_stay", %{"id" => id_str}, socket) do
-    id = String.to_integer(id_str)
-    expanded =
-      if MapSet.member?(socket.assigns.expanded_stays, id) do
-        MapSet.delete(socket.assigns.expanded_stays, id)
-      else
-        MapSet.put(socket.assigns.expanded_stays, id)
-      end
-
-    {:noreply, assign(socket, :expanded_stays, expanded)}
-  end
-
-  def handle_event("toggle_rate_breakdown", %{"id" => id_str}, socket) do
-    id = String.to_integer(id_str)
-    open =
-      if MapSet.member?(socket.assigns.rate_breakdown_open, id) do
-        MapSet.delete(socket.assigns.rate_breakdown_open, id)
-      else
-        MapSet.put(socket.assigns.rate_breakdown_open, id)
-      end
-
-    {:noreply, assign(socket, :rate_breakdown_open, open)}
-  end
 
   # ── PubSub ────────────────────────────────────────────────────
 
