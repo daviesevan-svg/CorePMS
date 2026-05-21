@@ -1,107 +1,243 @@
 defmodule Hospex.Bookings.Store do
   @moduledoc """
-  In-memory store for bookings + stays.
+  Postgres-backed store for bookings + stays.
 
-  Stand-in for the Postgres-backed operational cache while we don't have
-  a local Postgres. The public API mirrors what `Hospex.Bookings` exposes
-  to LiveViews, so swapping to Ecto later is a within-module change.
+  Returns plain maps (not Ecto structs) — the same shape the LiveViews
+  already consume. Booking and stay ids are integers (Postgres serial).
 
-  State shape:
+  Conversion rules:
 
-      %{
-        bookings: [%{id, ref, ..., stays: [...]}],
-        next_booking_id: integer
-      }
-
-  Bookings are plain maps (not Ecto structs) — the same shape the
-  LiveViews already consume. Booking and stay ids are integers.
+    * `status`, `src`, `payment_collect` are stored as strings; converted
+      to atoms at the boundary via `String.to_existing_atom/1` with a safe
+      fallback so an unexpected DB value can't crash the calendar.
+    * `events`, `transactions` and `notes` are stubbed (empty list / nil)
+      — the audit log, payments history and staff-notes features were
+      dropped from scope; their underlying side effects on `paid` / `total`
+      / `status` are still persisted on the booking row.
   """
-  use Agent
 
-  alias Hospex.Content.MockCalendarData
+  alias Hospex.Repo
+  alias Hospex.Bookings.{Booking, Stay}
 
-  def start_link(_opts \\ []) do
-    Agent.start_link(&seed/0, name: __MODULE__)
-  end
+  @known_statuses ~w(paid partial unpaid in hold cancelled ota_collect)a
+  @known_srcs     ~w(direct BC AB EX DR ota)a
+  @known_collects ~w(property channel ota)a
 
   # ── Reads ────────────────────────────────────────────────
 
   def list_bookings do
-    Agent.get(__MODULE__, & &1.bookings)
+    Booking
+    |> Repo.all()
+    |> Repo.preload(:stays)
+    |> Enum.map(&to_map/1)
+    |> Enum.sort_by(& &1.check_in, Date)
   end
 
   def get_booking(id) do
-    Agent.get(__MODULE__, fn s -> Enum.find(s.bookings, &(&1.id == id)) end)
+    case Repo.get(Booking, id) do
+      nil -> nil
+      b   -> b |> Repo.preload(:stays) |> to_map()
+    end
   end
 
   # ── Writes ───────────────────────────────────────────────
 
-  def insert_booking(builder) when is_function(builder, 2) do
-    Agent.get_and_update(__MODULE__, fn s ->
-      next_booking_id = s.next_booking_id
-      stay_id_base    = next_booking_id * 100
-      booking         = builder.(next_booking_id, stay_id_base)
+  @doc """
+  Insert a new booking. `builder.(booking_id, stay_id_base)` receives
+  placeholder ids (booking_id from Postgres NEXTVAL on a probe insert;
+  stay_id_base unused since Postgres assigns stay ids) and must return
+  the booking map.
 
-      {booking,
-       %{s |
-         bookings:        s.bookings ++ [booking],
-         next_booking_id: next_booking_id + 1
-       }}
+  To preserve the legacy two-arg builder contract (some callers compute
+  fields from these placeholders), we do a transactional insert in two
+  steps: insert a stub booking to claim an id, then update it with the
+  builder's result.
+  """
+  def insert_booking(builder) when is_function(builder, 2) do
+    Repo.transaction(fn ->
+      # Claim an id with a stub row, then overwrite — keeps the builder's
+      # arity-2 contract working without a separate sequence query.
+      stub =
+        %Booking{}
+        |> Booking.changeset(%{
+          ref:        "PENDING",
+          lead_guest: "PENDING",
+          check_in:   Date.utc_today(),
+          check_out:  Date.utc_today() |> Date.add(1),
+          status:     "unpaid"
+        })
+        |> Repo.insert!()
+
+      stay_id_base = stub.id * 100
+      booking_map  = builder.(stub.id, stay_id_base)
+
+      attrs = booking_attrs(booking_map)
+
+      stub
+      |> Repo.preload(:stays)
+      |> Booking.changeset(attrs)
+      |> Repo.update!()
+      |> Repo.preload(:stays, force: true)
+      |> to_map()
     end)
+    |> case do
+      {:ok, b} -> b
+      {:error, reason} -> raise "insert_booking failed: #{inspect(reason)}"
+    end
   end
 
   def delete_booking(booking_id) do
-    Agent.update(__MODULE__, fn s ->
-      %{s | bookings: Enum.reject(s.bookings, &(&1.id == booking_id))}
-    end)
+    case Repo.get(Booking, booking_id) do
+      nil -> :ok
+      b   -> Repo.delete!(b); :ok
+    end
   end
 
+  @doc """
+  Load → transform → persist. The transform function receives a plain
+  map shaped as `to_map/1` returns and must return the same shape (with
+  the same stay ids preserved for any stay that should remain).
+  """
   def update_booking(booking_id, update_fn) when is_function(update_fn, 1) do
-    Agent.update(__MODULE__, fn s ->
-      bookings =
-        Enum.map(s.bookings, fn b ->
-          if b.id == booking_id, do: update_fn.(b), else: b
-        end)
+    Repo.transaction(fn ->
+      case Repo.get(Booking, booking_id) do
+        nil -> nil
+        b ->
+          loaded = b |> Repo.preload(:stays) |> to_map()
+          updated = update_fn.(loaded)
+          attrs = booking_attrs(updated)
 
-      %{s | bookings: bookings}
+          b
+          |> Repo.preload(:stays)
+          |> Booking.changeset(attrs)
+          |> Repo.update!()
+
+          updated
+      end
     end)
+    |> case do
+      {:ok, result} -> result
+      {:error, reason} -> raise "update_booking failed: #{inspect(reason)}"
+    end
   end
 
-  # ── Seed ─────────────────────────────────────────────────
+  # ── Plain-map ↔ Ecto attrs conversion ────────────────────
 
-  defp seed do
-    today = Date.utc_today()
-    {_room_groups, bookings, _stays_flat} = MockCalendarData.data(today)
-
-    # Stamp every seeded booking with an initial "created" event so the
-    # History tab isn't empty for demo data, plus an empty notes field.
-    bookings =
-      Enum.map(bookings, fn b ->
-        creation = %{
-          id:      1,
-          kind:    :booking_created,
-          at:      booking_created_at(b, today),
-          by:      "system",
-          summary: "Booking created via #{b.src}"
-        }
-
-        b
-        |> Map.put(:events, [creation])
-        |> Map.put(:notes, nil)
-      end)
-
-    next_id = (bookings |> Enum.map(& &1.id) |> Enum.max(fn -> 999 end)) + 1
-    %{bookings: bookings, next_booking_id: next_id}
+  defp to_map(%Booking{} = b) do
+    %{
+      id:              b.id,
+      ref:             b.ref,
+      lead_guest:      b.lead_guest,
+      src:             safe_atom(b.src, @known_srcs, :direct),
+      status:          safe_atom(b.status, @known_statuses, :unpaid),
+      total:           b.total || 0,
+      paid:            b.paid || 0,
+      check_in:        b.check_in,
+      check_out:       b.check_out,
+      stays:           Enum.map(b.stays, &stay_to_map(&1, b)),
+      ota_ref:         b.ota_ref,
+      payment_collect: safe_atom(b.payment_collect, @known_collects, :property),
+      email:           b.email,
+      phone:           b.phone,
+      country:         b.country,
+      requests:        b.requests,
+      rate_night:      b.rate_night,
+      cleaning_fee:    b.cleaning_fee,
+      tax_rate:        b.tax_rate,
+      block_reason:    b.block_reason,
+      block_release:   b.block_release,
+      block_by:        b.block_by,
+      # Stubbed — see moduledoc.
+      events:          [],
+      transactions:    [],
+      notes:           nil
+    }
   end
 
-  # Plausible "created" timestamp: a few days before check-in, before
-  # any real lifecycle events surfaced from BookingDetails.
-  defp booking_created_at(b, today) do
-    days_ahead = Date.diff(b.check_in, today)
-    offset     = max(0, 14 - days_ahead)
-    date       = Date.add(b.check_in, -offset - 7)
+  defp stay_to_map(%Stay{} = s, %Booking{} = b) do
+    room_count = length(b.stays)
 
-    {:ok, dt} = NaiveDateTime.new(date, ~T[10:00:00])
-    dt
+    %{
+      id:         s.id,
+      booking_id: s.booking_id,
+      room_id:    s.room_id,
+      guest_name: s.guest_name,
+      adults:     s.adults || 0,
+      kids:       s.kids || 0,
+      check_in:   s.check_in,
+      nights:     s.nights,
+      status:     safe_atom(s.status, @known_statuses, :unpaid),
+      src:        safe_atom(s.src, @known_srcs, :direct),
+      total:      s.total || 0,
+      paid:       s.paid || 0,
+      subtotal:   s.subtotal || 0,
+      room_count: room_count
+    }
   end
+
+  defp booking_attrs(m) do
+    %{
+      ref:             m.ref,
+      lead_guest:      m.lead_guest,
+      src:             to_str(Map.get(m, :src)),
+      status:          to_str(Map.get(m, :status)),
+      total:           Map.get(m, :total, 0),
+      paid:            Map.get(m, :paid, 0),
+      check_in:        m.check_in,
+      check_out:       m.check_out,
+      ota_ref:         Map.get(m, :ota_ref),
+      payment_collect: to_str(Map.get(m, :payment_collect, :property)),
+      email:           Map.get(m, :email),
+      phone:           Map.get(m, :phone),
+      country:         Map.get(m, :country),
+      requests:        Map.get(m, :requests),
+      rate_night:      Map.get(m, :rate_night),
+      cleaning_fee:    Map.get(m, :cleaning_fee),
+      tax_rate:        Map.get(m, :tax_rate),
+      block_reason:    Map.get(m, :block_reason),
+      block_release:   Map.get(m, :block_release),
+      block_by:        Map.get(m, :block_by),
+      stays:           Enum.map(Map.get(m, :stays, []), &stay_attrs/1)
+    }
+  end
+
+  defp stay_attrs(s) do
+    attrs = %{
+      room_id:    s.room_id,
+      guest_name: s.guest_name,
+      adults:     Map.get(s, :adults, 0) || 0,
+      kids:       Map.get(s, :kids, 0) || 0,
+      check_in:   s.check_in,
+      nights:     s.nights,
+      status:     to_str(Map.get(s, :status)),
+      src:        to_str(Map.get(s, :src)),
+      total:      Map.get(s, :total, 0),
+      paid:       Map.get(s, :paid, 0),
+      subtotal:   Map.get(s, :subtotal, 0)
+    }
+
+    case Map.get(s, :id) do
+      nil -> attrs
+      id when is_integer(id) ->
+        # Pass through the existing PK so cast_assoc updates rather than
+        # delete-and-recreates. We need it to look like a "match" — Ecto's
+        # cast_assoc matches by primary key when the attrs include :id.
+        Map.put(attrs, :id, id)
+    end
+  end
+
+  defp to_str(nil),                do: nil
+  defp to_str(atom) when is_atom(atom),    do: Atom.to_string(atom)
+  defp to_str(s)    when is_binary(s),     do: s
+
+  defp safe_atom(nil, _known, fallback), do: fallback
+  defp safe_atom(s, known, fallback) when is_binary(s) do
+    try do
+      atom = String.to_existing_atom(s)
+      if atom in known, do: atom, else: fallback
+    rescue
+      ArgumentError -> fallback
+    end
+  end
+
 end

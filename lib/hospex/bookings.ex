@@ -1,12 +1,18 @@
 defmodule Hospex.Bookings do
   @moduledoc """
-  Bookings context. Wraps the in-memory `Hospex.Bookings.Store` and
+  Bookings context. Wraps `Hospex.Bookings.Store` (Postgres-backed) and
   broadcasts changes over PubSub so all LiveViews can refresh.
 
   Rooms / room types are still served by `Hospex.Content.MockCalendarData`
   — per the architecture, they're reference data that will eventually
   be ingested from the property's YAML repo. The operational store
   (bookings, stays) is what users add/edit through the UI.
+
+  Scope note: `events` (booking audit log), `transactions` (payments /
+  refunds / charges history) and `notes` (free-text staff notes) are
+  stubbed in this refactor — they always read as `[]` / `[]` / `nil`.
+  The side-effects of those mutations on `paid` / `total` / `status`
+  are still persisted on the booking row.
   """
 
   alias Hospex.Bookings.Store
@@ -14,36 +20,20 @@ defmodule Hospex.Bookings do
 
   @pubsub_topic "bookings"
 
-  # ── Event log ────────────────────────────────────────────────
+  # ── Event log (stubbed) ──────────────────────────────────────
 
   @doc """
-  Append an audit event to a booking's `:events` log. Used by every
-  write path so the History tab shows real activity, not synthetic.
+  Audit-log entry point. Stubbed: events aren't persisted in this scope,
+  so this is a no-op. Callers keep using it; the History tab will read
+  an empty list until a follow-up adds an `events` table.
   """
-  def append_event(booking_id, kind, opts \\ []) when is_atom(kind) do
-    Store.update_booking(booking_id, fn b ->
-      events = Map.get(b, :events, [])
-      next_id = (events |> Enum.map(& &1.id) |> Enum.max(fn -> 0 end)) + 1
+  def append_event(_booking_id, kind, _opts \\ []) when is_atom(kind), do: :ok
 
-      event = %{
-        id:      next_id,
-        kind:    kind,
-        at:      NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second),
-        by:      Keyword.get(opts, :by, "Reception"),
-        summary: Keyword.fetch!(opts, :summary)
-      }
-
-      Map.put(b, :events, [event | events])
-    end)
-  end
-
-  @doc "Set or update the booking's internal staff notes (markdown-ish text)."
-  def update_notes(booking_id, notes) do
-    Store.update_booking(booking_id, fn b -> Map.put(b, :notes, notes) end)
-    append_event(booking_id, :notes_updated, summary: "Updated internal notes")
-    broadcast({:booking_updated, booking_id})
-    :ok
-  end
+  @doc """
+  Set or update the booking's internal staff notes. Stubbed: notes
+  aren't persisted in this scope, so this is a no-op.
+  """
+  def update_notes(_booking_id, _notes), do: :ok
 
   # ── Subscription / broadcast ─────────────────────────────────
 
@@ -241,34 +231,14 @@ defmodule Hospex.Bookings do
   Each stay denormalizes `paid` / `total` for the calendar pill, so we
   mirror onto every stay.
   """
-  def add_transaction(booking_id, %{kind: kind, amount: amount} = attrs)
+  def add_transaction(booking_id, %{kind: kind, amount: amount} = _attrs)
       when kind in [:payment, :refund, :charge] and is_integer(amount) and amount > 0 do
+    # Transaction history is stubbed; only the side-effect on paid/total
+    # is persisted on the booking row.
     Store.update_booking(booking_id, fn b ->
-      txns = Map.get(b, :transactions, [])
-      next_id = (txns |> Enum.map(& &1.id) |> Enum.max(fn -> 0 end)) + 1
-
-      txn = %{
-        id:         next_id,
-        kind:       kind,
-        amount:     amount,
-        method:     Map.get(attrs, :method),
-        note:       Map.get(attrs, :note, ""),
-        created_at: NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
-      }
-
-      b
-      |> Map.put(:transactions, [txn | txns])
-      |> apply_txn_to_totals(kind, amount)
+      apply_txn_to_totals(b, kind, amount)
     end)
 
-    summary =
-      case kind do
-        :payment -> "Payment of €#{amount} received"
-        :refund  -> "Refund of €#{amount} issued"
-        :charge  -> "Charge of €#{amount} added"
-      end
-
-    append_event(booking_id, kind, summary: summary)
     broadcast({:booking_updated, booking_id})
     :ok
   end

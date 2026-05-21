@@ -19,6 +19,7 @@ defmodule Hospex.Bookings.Stay do
     field :src,        :string, default: "direct"
     field :total,      :integer, default: 0
     field :paid,       :integer, default: 0
+    field :subtotal,   :integer, default: 0
 
     belongs_to :booking, Booking
 
@@ -26,7 +27,7 @@ defmodule Hospex.Bookings.Stay do
   end
 
   @castable ~w(room_id guest_name adults kids check_in nights
-               status src total paid booking_id)a
+               status src total paid subtotal booking_id)a
 
   def changeset(stay, attrs) do
     stay
