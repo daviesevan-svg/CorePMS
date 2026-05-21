@@ -170,14 +170,34 @@ mix test test/hospex/schema/
 mix phx.server
 ```
 
-Requires Elixir 1.16+ and PostgreSQL 14+.
+Requires Elixir 1.16+, Node 18+, and PostgreSQL 14+.
 
-**Postgres must be running on `localhost:5432`** before `mix setup` — it will fail on `ecto.create` otherwise. Quick options on macOS:
+### Toolchain
 
-- Install [Postgres.app](https://postgresapp.com) (GUI, simplest), or
-- Run a container: `docker run -d --name hospex-pg -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:16`
+The repo ships a [`.mise.toml`](.mise.toml) pinning Erlang/Elixir/Node versions. If you use [mise](https://mise.jdx.dev), `mise install` from the repo root sets up everything in one step. Otherwise install Elixir + Node manually to match.
 
-The dev config (`config/dev.exs`) expects user/password `postgres`/`postgres` by default.
+### Postgres
+
+**Postgres must be running on `localhost:5432`** before `mix setup`, with a superuser named `postgres` (password `postgres`) to match `config/dev.exs`.
+
+```bash
+# macOS via Homebrew
+brew install postgresql@16
+brew services start postgresql@16
+createuser -s postgres                                  # or:
+# psql -d postgres -c "CREATE ROLE postgres WITH LOGIN SUPERUSER PASSWORD 'postgres';"
+
+# Or a container (no Homebrew needed)
+docker run -d --name hospex-pg -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:16
+
+# Or GUI: install Postgres.app from postgresapp.com
+```
+
+---
+
+## License
+
+[MIT](LICENSE). Free to use, fork, modify, and deploy for your own property — commercial use included.
 
 ### Environment variables
 

@@ -34,8 +34,11 @@ mix ecto.reset      # drop + create + migrate + seed
 ```
 
 ### Prerequisites
-- **Elixir 1.16+** and **Node 18+** on PATH.
-- **PostgreSQL 14+ running on `localhost:5432`** with a superuser that matches `config/dev.exs` (defaults to `postgres`/`postgres`). `mix setup` will hang or fail on `ecto.create` if no Postgres is reachable. Quick options on macOS: `brew install postgresql@16 && brew services start postgresql@16` (then `createuser -s postgres` if needed), or install [Postgres.app](https://postgresapp.com), or `docker run -d --name hospex-pg -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:16`.
+- **Elixir 1.16+** and **Node 18+** on PATH. The repo's `.mise.toml` pins Erlang 28 / Elixir 1.18 / Node 22 — `mise install` from the repo root sets these up if you use mise.
+- **PostgreSQL 14+ running on `localhost:5432`** with a `postgres`/`postgres` superuser (matches `config/dev.exs`). `mix setup` will fail on `ecto.create` otherwise. Quick options on macOS:
+  - `brew install postgresql@16 && brew services start postgresql@16 && createuser -s postgres`
+  - Install [Postgres.app](https://postgresapp.com) (GUI)
+  - `docker run -d --name hospex-pg -e POSTGRES_USER=postgres -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:16`
 
 ### Known follow-ups
 - `lib/hospex_web/live/bookings_live.ex` still emits a `handle_event/3` clause-grouping warning. Same fix pattern as the (now-completed) calendar refactor.
