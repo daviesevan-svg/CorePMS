@@ -1,0 +1,372 @@
+<div class="app" style={"--cell-w: #{@cell_w}px; --metric-h: 44px;"}>
+
+  <%!-- ── Top bar ──────────────────────────────────────────────── --%>
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div class="brand-name">Hospex</div>
+    </div>
+    <div class="brand-sep"></div>
+    <div class="property">
+      <div class="property-avatar">LM</div>
+      <div class="property-name">Le Petit Madeleine</div>
+      <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6 8 10.5 12.5 6"/></svg>
+    </div>
+    <div class="navtabs">
+      <.link patch="/dashboard" class="navtab">Dashboard</.link>
+      <.link patch="/calendar" class="navtab">Calendar</.link>
+      <.link patch="/bookings" class="navtab">Bookings</.link>
+      <button class="navtab">Guests</button>
+      <.link patch="/inventory" class="navtab" data-active="1">Inventory</.link>
+      <button class="navtab">Reports</button>
+    </div>
+    <div class="top-right">
+      <button class="icon-btn" title="Help">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M6 6.5a2 2 0 1 1 2.5 2c-.6.2-.5.7-.5 1.5"/><circle cx="8" cy="12" r=".5" fill="currentColor" stroke="none"/></svg>
+      </button>
+      <button class="icon-btn" title="Notifications">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7a4 4 0 1 1 8 0v3l1 2H3l1-2V7Z"/><path d="M6.5 13.5a1.5 1.5 0 0 0 3 0"/></svg>
+        <span class="badge-dot"></span>
+      </button>
+      <button class="icon-btn" title="Settings">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2"/><path d="M8 1.5v2M8 12.5v2M14.5 8h-2M3.5 8h-2M12.6 3.4 11.2 4.8M4.8 11.2l-1.4 1.4M12.6 12.6l-1.4-1.4M4.8 4.8 3.4 3.4"/></svg>
+      </button>
+      <div class="me-avatar">EM</div>
+    </div>
+  </div>
+
+  <%!-- ── Sub-toolbar ──────────────────────────────────────────── --%>
+  <div class="subbar">
+    <button class="today-btn" phx-click="go_today">Today</button>
+
+    <div style="display:flex;gap:4px">
+      <button class="arrow" phx-click="go_prev_day" title="Previous day">
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5 5.5 8 10 12.5"/></svg>
+      </button>
+      <button class="arrow" phx-click="go_next_day" title="Next day">
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5 10.5 8 6 12.5"/></svg>
+      </button>
+    </div>
+
+    <button class="date-picker-btn" phx-click="open_dp">
+      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3.5" width="11" height="10" rx="1.5"/><path d="M2.5 6.5h11M5 2v3M11 2v3"/></svg>
+      <span class="range"><%= format_date_range(@anchor, @view_span) %></span>
+      <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6 8 10.5 12.5 6"/></svg>
+    </button>
+
+    <div style="display:flex;gap:4px">
+      <button class="arrow" phx-click="go_prev" title={"Previous #{@view_span} days"}>
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5 5.5 8 10 12.5"/></svg>
+      </button>
+      <button class="arrow" phx-click="go_next" title={"Next #{@view_span} days"}>
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5 10.5 8 6 12.5"/></svg>
+      </button>
+    </div>
+
+    <div class="seg" style="margin-left:4px">
+      <button data-active={if @view_span == 7,  do: "1", else: "0"} phx-click="set_view" phx-value-span="7">Week</button>
+      <button data-active={if @view_span == 14, do: "1", else: "0"} phx-click="set_view" phx-value-span="14">2 weeks</button>
+      <button data-active={if @view_span == 30, do: "1", else: "0"} phx-click="set_view" phx-value-span="30">Month</button>
+    </div>
+
+    <div class="toolbar-spacer"></div>
+
+    <%!-- All metrics toggle inline; click any chip to show/hide that row. --%>
+    <div class="metric-filter">
+      <span class="metric-filter-label">Show</span>
+      <%= for m <- all_metrics() do %>
+        <button class="metric-chip"
+                data-active={if MapSet.member?(@visible_metrics, m), do: "1", else: "0"}
+                phx-click="toggle_metric" phx-value-metric={Atom.to_string(m)}>
+          <%= metric_short(m) %>
+        </button>
+      <% end %>
+    </div>
+  </div>
+
+  <%!-- ── Main ─────────────────────────────────────────────────── --%>
+  <div class="main">
+
+    <%!-- Sidebar --%>
+    <div class="sidebar">
+      <div class="sidebar-head">
+        <span>Inventory</span>
+        <span class="count"><%= length(@room_groups) %> types</span>
+      </div>
+      <div class="room-list" id="sidebar-scroll" phx-hook="SidebarScroll">
+        <%= for group <- @room_groups do %>
+          <% is_collapsed = Map.get(@collapsed, group.id, false) %>
+          <div class="room-type" data-collapsed={if is_collapsed, do: "1", else: "0"}>
+            <div class="rt-head" phx-click="toggle_group" phx-value-id={group.id}>
+              <svg class="caret" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6 8 10.5 12.5 6"/></svg>
+              <span class="name"><%= group.name %></span>
+              <span class="total"><%= length(group.rooms) %> rooms</span>
+            </div>
+
+            <%= for m <- all_metrics(), MapSet.member?(@visible_metrics, m) do %>
+              <div class={"rt-metric#{if m in [:avail, :rate], do: " primary", else: ""}"}>
+                <span class="label"><%= metric_label(m) %></span>
+                <span class="sub"><%= metric_sub(m) %></span>
+              </div>
+            <% end %>
+          </div>
+        <% end %>
+      </div>
+    </div>
+
+    <%!-- Calendar grid --%>
+    <div class="calendar">
+
+      <div class="date-header" id="date-header">
+        <div class="date-header-inner" style={"width:#{@total_grid_w}px"}>
+          <%= for {date, i} <- Enum.with_index(@dates) do %>
+            <% is_today    = Date.compare(date, @today) == :eq %>
+            <% weekend     = is_weekend(date) %>
+            <% month_start = date.day == 1 or i == 0 %>
+            <div class="date-cell"
+                 data-today={if is_today, do: "1", else: "0"}
+                 data-weekend={if weekend, do: "1", else: "0"}>
+              <%= if month_start do %>
+                <span class="month-tag"><%= month_abbr(date) %></span>
+              <% end %>
+              <span class="dow"><%= dow_abbr(date) %></span>
+              <span class="dom"><%= date.day %></span>
+            </div>
+          <% end %>
+        </div>
+      </div>
+
+      <div class="grid-scroll" id="grid-scroll" phx-hook="CalendarGrid">
+        <div class="grid" id="inv-grid" phx-hook="InventorySelect" style={"width:#{@total_grid_w}px"}>
+
+          <%= if @today_col >= 0 do %>
+            <div class="today-line" style={"left:#{trunc((@today_col + 0.5) * @cell_w)}px"}></div>
+          <% end %>
+
+          <%= for group <- @room_groups do %>
+            <% is_collapsed = Map.get(@collapsed, group.id, false) %>
+            <% rooms_count  = length(group.rooms) %>
+            <div class="room-type-grid" data-collapsed={if is_collapsed, do: "1", else: "0"}>
+
+              <%!-- Thin neutral separator that visually aligns with the room-type
+                   header in the sidebar. --%>
+              <div class="rt-separator"></div>
+
+              <%!-- Availability (read-only) --%>
+              <%= if MapSet.member?(@visible_metrics, :avail) do %>
+                <% is_last = last_visible_metric?(@visible_metrics, :avail) %>
+                <div class="metric-row" data-last={if is_last, do: "1", else: "0"}>
+                  <%= for date <- @dates do %>
+                    <% avail = Map.get(@availability, {group.id, date}, rooms_count) %>
+                    <% level = avail_level(avail, rooms_count) %>
+                    <div class={"cell avail"} data-weekend={if is_weekend(date), do: "1", else: "0"}
+                         data-level={Atom.to_string(level)} title="Availability is set by the calendar">
+                      <span class="cell-value"><%= avail %></span>
+                    </div>
+                  <% end %>
+                </div>
+              <% end %>
+
+              <%!-- Rate --%>
+              <%= if MapSet.member?(@visible_metrics, :rate) do %>
+                <% is_last = last_visible_metric?(@visible_metrics, :rate) %>
+                <div class="metric-row" data-last={if is_last, do: "1", else: "0"}>
+                  <%= for {date, ci} <- Enum.with_index(@dates) do %>
+                    <% cell = cell_for(group.id, date, @overrides) %>
+                    <% avail = Map.get(@availability, {group.id, date}, rooms_count) %>
+                    <% editing? = editing_cell?(@editing, group.id, date, :rate) %>
+                    <div class={"cell rate"}
+                         data-weekend={if is_weekend(date), do: "1", else: "0"}
+                         data-soldout={if avail <= 0, do: "1", else: "0"}
+                         data-zero={if cell.rate == 0 or cell.closed, do: "1", else: "0"}
+                         data-selected={if in_selection?(@selection, group.id, :rate, date), do: "1", else: "0"}
+                         data-rt={group.id} data-field="rate" data-col={ci} data-date={Date.to_iso8601(date)}
+                         phx-click="start_edit"
+                         phx-value-rt={group.id}
+                         phx-value-date={Date.to_iso8601(date)}
+                         phx-value-field="rate">
+                      <%= if editing? do %>
+                        <div class="cell-edit" id={"edit-rate-#{group.id}-#{Date.to_iso8601(date)}"}
+                             phx-hook="InlineEdit"
+                             data-value={cell.rate}>
+                          <input type="number" />
+                        </div>
+                      <% else %>
+                        <span class="cell-value"><%= cell.rate %></span>
+                      <% end %>
+                    </div>
+                  <% end %>
+                </div>
+              <% end %>
+
+              <%!-- Min stay --%>
+              <%= if MapSet.member?(@visible_metrics, :min_stay) do %>
+                <% is_last = last_visible_metric?(@visible_metrics, :min_stay) %>
+                <div class="metric-row" data-last={if is_last, do: "1", else: "0"}>
+                  <%= for {date, ci} <- Enum.with_index(@dates) do %>
+                    <% cell = cell_for(group.id, date, @overrides) %>
+                    <% editing? = editing_cell?(@editing, group.id, date, :min_stay) %>
+                    <div class={"cell minstay"}
+                         data-weekend={if is_weekend(date), do: "1", else: "0"}
+                         data-strict={if cell.min_stay >= 3, do: "1", else: "0"}
+                         data-selected={if in_selection?(@selection, group.id, :min_stay, date), do: "1", else: "0"}
+                         data-rt={group.id} data-field="min_stay" data-col={ci} data-date={Date.to_iso8601(date)}
+                         phx-click="start_edit"
+                         phx-value-rt={group.id}
+                         phx-value-date={Date.to_iso8601(date)}
+                         phx-value-field="min_stay">
+                      <%= if editing? do %>
+                        <div class="cell-edit" id={"edit-min-#{group.id}-#{Date.to_iso8601(date)}"}
+                             phx-hook="InlineEdit" data-value={cell.min_stay}>
+                          <input type="number" min="1" max="30" />
+                        </div>
+                      <% else %>
+                        <span class="cell-value"><%= cell.min_stay %>n</span>
+                      <% end %>
+                    </div>
+                  <% end %>
+                </div>
+              <% end %>
+
+              <%!-- CTA --%>
+              <%= if MapSet.member?(@visible_metrics, :cta) do %>
+                <% is_last = last_visible_metric?(@visible_metrics, :cta) %>
+                <div class="metric-row" data-last={if is_last, do: "1", else: "0"}>
+                  <%= for {date, ci} <- Enum.with_index(@dates) do %>
+                    <% cell = cell_for(group.id, date, @overrides) %>
+                    <div class={"cell bool cta"} data-weekend={if is_weekend(date), do: "1", else: "0"}
+                         data-on={if cell.cta, do: "1", else: "0"}
+                         data-selected={if in_selection?(@selection, group.id, :cta, date), do: "1", else: "0"}
+                         data-rt={group.id} data-field="cta" data-col={ci} data-date={Date.to_iso8601(date)}
+                         phx-click="toggle_bool"
+                         phx-value-rt={group.id}
+                         phx-value-date={Date.to_iso8601(date)}
+                         phx-value-field="cta">
+                      <%= if cell.cta do %>
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 11 4-4 4 4"/></svg>
+                      <% else %>
+                        <span class="cell-value">·</span>
+                      <% end %>
+                    </div>
+                  <% end %>
+                </div>
+              <% end %>
+
+              <%!-- CTD --%>
+              <%= if MapSet.member?(@visible_metrics, :ctd) do %>
+                <% is_last = last_visible_metric?(@visible_metrics, :ctd) %>
+                <div class="metric-row" data-last={if is_last, do: "1", else: "0"}>
+                  <%= for {date, ci} <- Enum.with_index(@dates) do %>
+                    <% cell = cell_for(group.id, date, @overrides) %>
+                    <div class={"cell bool ctd"} data-weekend={if is_weekend(date), do: "1", else: "0"}
+                         data-on={if cell.ctd, do: "1", else: "0"}
+                         data-selected={if in_selection?(@selection, group.id, :ctd, date), do: "1", else: "0"}
+                         data-rt={group.id} data-field="ctd" data-col={ci} data-date={Date.to_iso8601(date)}
+                         phx-click="toggle_bool"
+                         phx-value-rt={group.id}
+                         phx-value-date={Date.to_iso8601(date)}
+                         phx-value-field="ctd">
+                      <%= if cell.ctd do %>
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 5 4 4 4-4"/></svg>
+                      <% else %>
+                        <span class="cell-value">·</span>
+                      <% end %>
+                    </div>
+                  <% end %>
+                </div>
+              <% end %>
+
+              <%!-- Closed --%>
+              <%= if MapSet.member?(@visible_metrics, :closed) do %>
+                <div class="metric-row" data-last="1">
+                  <%= for {date, ci} <- Enum.with_index(@dates) do %>
+                    <% cell = cell_for(group.id, date, @overrides) %>
+                    <div class={"cell bool closed"} data-weekend={if is_weekend(date), do: "1", else: "0"}
+                         data-on={if cell.closed, do: "1", else: "0"}
+                         data-selected={if in_selection?(@selection, group.id, :closed, date), do: "1", else: "0"}
+                         data-rt={group.id} data-field="closed" data-col={ci} data-date={Date.to_iso8601(date)}
+                         phx-click="toggle_bool"
+                         phx-value-rt={group.id}
+                         phx-value-date={Date.to_iso8601(date)}
+                         phx-value-field="closed">
+                      <%= if cell.closed do %>
+                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="10" height="6" rx="1"/><path d="M5 7V5a3 3 0 0 1 6 0v2"/></svg>
+                      <% else %>
+                        <span class="cell-value">·</span>
+                      <% end %>
+                    </div>
+                  <% end %>
+                </div>
+              <% end %>
+            </div>
+          <% end %>
+
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <%!-- ── Footer ────────────────────────────────────────────────── --%>
+  <div class="footer">
+    <div class="legend">
+      <div class="legend-item"><div class="legend-dot ok"></div>Available</div>
+      <div class="legend-item"><div class="legend-dot low"></div>Low (≤ 25%)</div>
+      <div class="legend-item"><div class="legend-dot zero"></div>Sold out</div>
+    </div>
+    <div class="footer-right">
+      <%= cond do %>
+        <% @selection -> %>
+          <div class="stat">
+            <b><%= MapSet.size(@selection.dates) %></b> cells selected · click any selected cell to bulk-edit
+            <button class="stat-link" phx-click="clear_selection">Clear</button>
+          </div>
+        <% map_size(@overrides) > 0 -> %>
+          <div class="stat"><b><%= map_size(@overrides) %></b> cells changed this session</div>
+        <% true -> %>
+          <div class="stat">Click to edit a single cell, or drag across a row to bulk-edit.</div>
+      <% end %>
+    </div>
+  </div>
+
+  <%!-- Date picker (reused from calendar) --%>
+  <%= if @dp_open do %>
+    <div class="overlay" phx-click="close_dp">
+      <div class="popover" phx-click-away="close_dp" onclick="event.stopPropagation()">
+        <div class="pop-head">
+          <div class="pop-title"><%= dp_month_label(@dp_month) %></div>
+          <div class="pop-nav">
+            <button phx-click="dp_prev_month">
+              <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5 5.5 8 10 12.5"/></svg>
+            </button>
+            <button phx-click="dp_next_month">
+              <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5 10.5 8 6 12.5"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="pop-grid">
+          <%= for d <- ~w(S M T W T F S) do %>
+            <div class="pop-dow"><%= d %></div>
+          <% end %>
+          <%= for {cell_date, kind} <- dp_cells(@dp_month) do %>
+            <% is_today = Date.compare(cell_date, @today) == :eq %>
+            <% is_sel   = Date.compare(cell_date, @anchor) == :eq %>
+            <button class="pop-day"
+                    data-off={if kind == :off, do: "1", else: "0"}
+                    data-today={if is_today, do: "1", else: "0"}
+                    data-sel={if is_sel, do: "1", else: "0"}
+                    phx-click="pick_date"
+                    phx-value-date={Date.to_iso8601(cell_date)}>
+              <%= cell_date.day %>
+            </button>
+          <% end %>
+        </div>
+        <div class="pop-foot">
+          <button class="pop-shortcut" phx-click="pick_date" phx-value-date={Date.to_iso8601(@today)}>Today</button>
+          <button class="pop-shortcut" phx-click="pick_date" phx-value-date={Date.to_iso8601(Date.add(@today, 7))}>Next week</button>
+          <button class="pop-shortcut" phx-click="pick_date" phx-value-date={Date.to_iso8601(Date.add(@today, 30))}>Next month</button>
+        </div>
+      </div>
+    </div>
+  <% end %>
+
+</div>

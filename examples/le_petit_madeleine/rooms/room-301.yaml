@@ -1,0 +1,8 @@
+schema_version: "1.0"
+id: room-301
+room_type_id: junior-suite
+name:
+  en: Room 301 — Junior Suite
+  fr: Chambre 301 — Suite Junior
+floor: 3
+view: sea

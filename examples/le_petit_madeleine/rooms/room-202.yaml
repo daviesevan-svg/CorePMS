@@ -1,0 +1,8 @@
+schema_version: "1.0"
+id: room-202
+room_type_id: deluxe-sea-view
+name:
+  en: Room 202
+  fr: Chambre 202
+floor: 2
+view: sea

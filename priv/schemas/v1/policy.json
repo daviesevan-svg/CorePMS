@@ -1,0 +1,193 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.channex.io/property-content/v1/policy.json",
+  "title": "Policies",
+  "description": "Property operational policies: cancellation terms (reusable by rate plans), check-in/out rules, guest policies, and deposit requirements. One file at policies/policies.yaml.",
+  "type": "object",
+  "required": ["schema_version"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^1\\.\\d+$"
+    },
+    "cancellation_policies": {
+      "type": "array",
+      "description": "Named cancellation policies. Rate plans reference these by id. Properties with only one cancellation approach can define it inline on the rate plan instead.",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "terms"],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+          },
+          "name": { "$ref": "#/$defs/multilingual_text" },
+          "terms": {
+            "type": "array",
+            "description": "Ordered tiers, most generous first.",
+            "items": {
+              "type": "object",
+              "required": ["before_days", "refund_percent"],
+              "additionalProperties": false,
+              "properties": {
+                "before_days":    { "type": "integer", "minimum": 0 },
+                "refund_percent": { "type": "integer", "minimum": 0, "maximum": 100 }
+              }
+            },
+            "minItems": 1
+          },
+          "notes": { "$ref": "#/$defs/multilingual_text" }
+        }
+      }
+    },
+    "check_in": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "from":   { "$ref": "#/$defs/time_hhmm" },
+        "to":     { "$ref": "#/$defs/time_hhmm" },
+        "early_check_in": {
+          "type": "string",
+          "enum": ["not_available", "available_on_request", "available_for_fee", "always_available"]
+        },
+        "early_check_in_fee": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Fee for early check-in when available_for_fee. In property currency."
+        },
+        "instructions": { "$ref": "#/$defs/multilingual_text" }
+      }
+    },
+    "check_out": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "by":   { "$ref": "#/$defs/time_hhmm" },
+        "late_check_out": {
+          "type": "string",
+          "enum": ["not_available", "available_on_request", "available_for_fee", "always_available"]
+        },
+        "late_check_out_fee": {
+          "type": "number",
+          "minimum": 0
+        },
+        "instructions": { "$ref": "#/$defs/multilingual_text" }
+      }
+    },
+    "children": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowed": { "type": "boolean" },
+        "min_age": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Minimum age of children permitted. 0 means all ages including infants."
+        },
+        "cots_available": { "type": "boolean" },
+        "cot_fee": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Per-night cot fee. 0 or absent means cots are free."
+        },
+        "notes": { "$ref": "#/$defs/multilingual_text" }
+      }
+    },
+    "pets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowed": { "type": "boolean" },
+        "fee_per_night": {
+          "type": "number",
+          "minimum": 0
+        },
+        "max_weight_kg": { "type": "number", "minimum": 0 },
+        "notes": { "$ref": "#/$defs/multilingual_text" }
+      }
+    },
+    "smoking": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "allowed_indoors": { "type": "boolean" },
+        "designated_areas": { "type": "boolean" },
+        "notes": { "$ref": "#/$defs/multilingual_text" }
+      }
+    },
+    "deposit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "required": { "type": "boolean" },
+        "type": {
+          "type": "string",
+          "enum": ["credit_card_hold", "credit_card_charge", "cash", "bank_transfer"]
+        },
+        "amount_percent": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Deposit as a percentage of total booking value."
+        },
+        "notes": { "$ref": "#/$defs/multilingual_text" }
+      }
+    },
+    "quiet_hours": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "from": { "$ref": "#/$defs/time_hhmm" },
+        "to":   { "$ref": "#/$defs/time_hhmm" },
+        "notes": { "$ref": "#/$defs/multilingual_text" }
+      }
+    },
+    "internet": {
+      "type": "object",
+      "description": "Internet access policy.",
+      "additionalProperties": false,
+      "properties": {
+        "available": { "type": "boolean" },
+        "type": {
+          "type": "string",
+          "enum": ["wifi", "wired", "both"]
+        },
+        "coverage": {
+          "type": "string",
+          "enum": ["all_areas", "lobby_only", "rooms_only", "partial"]
+        },
+        "free": { "type": "boolean" },
+        "fee_per_day": { "type": "number", "minimum": 0 }
+      }
+    },
+    "parking": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "available": { "type": "boolean" },
+        "type": {
+          "type": "string",
+          "enum": ["private", "public", "street", "garage", "valet"]
+        },
+        "reservation_required": { "type": "boolean" },
+        "free": { "type": "boolean" },
+        "fee_per_day": { "type": "number", "minimum": 0 },
+        "notes": { "$ref": "#/$defs/multilingual_text" }
+      }
+    }
+  },
+  "$defs": {
+    "multilingual_text": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "type": "string", "minLength": 1 },
+      "propertyNames": { "pattern": "^[a-z]{2}(-[A-Z]{2})?$" }
+    },
+    "time_hhmm": {
+      "type": "string",
+      "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$"
+    }
+  }
+}

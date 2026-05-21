@@ -1,0 +1,84 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.channex.io/property-content/v1/room.json",
+  "title": "Room",
+  "description": "A specific physical room unit. References its room type for configuration. One file per room in rooms/.",
+  "type": "object",
+  "required": ["schema_version", "id", "room_type_id", "name"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^1\\.\\d+$"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$",
+      "description": "Unique within the property. Typically the room number slug, e.g. room-101."
+    },
+    "room_type_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$",
+      "description": "Must reference a valid room type id in room_types/."
+    },
+    "name": {
+      "$ref": "#/$defs/multilingual_text",
+      "description": "Display name for the room, e.g. 'Room 101' or 'The Garden Suite'."
+    },
+    "floor": {
+      "type": "integer",
+      "description": "Floor number. 0 = ground floor. Negative values for basement levels."
+    },
+    "view": {
+      "type": "string",
+      "enum": [
+        "sea", "ocean", "garden", "pool", "city",
+        "mountain", "courtyard", "street", "partial_sea", "other"
+      ],
+      "description": "Specific view from this unit when rooms of the same type have different views."
+    },
+    "accessible": {
+      "type": "boolean",
+      "description": "Override the room type's accessible flag for this specific unit."
+    },
+    "connecting_room_ids": {
+      "type": "array",
+      "description": "IDs of rooms that connect directly to this one (for family bookings).",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "notes": {
+      "$ref": "#/$defs/multilingual_text",
+      "description": "Any unit-specific notes guests should be aware of."
+    },
+    "photos": {
+      "type": "array",
+      "description": "Unit-specific photos. Most photos should be on the room type.",
+      "items": { "$ref": "#/$defs/photo" }
+    }
+  },
+  "$defs": {
+    "multilingual_text": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "type": "string", "minLength": 1 },
+      "propertyNames": { "pattern": "^[a-z]{2}(-[A-Z]{2})?$" }
+    },
+    "photo": {
+      "type": "object",
+      "required": ["url", "alt", "category"],
+      "additionalProperties": false,
+      "properties": {
+        "url":      { "type": "string", "format": "uri" },
+        "alt":      { "$ref": "#/$defs/multilingual_text" },
+        "caption":  { "$ref": "#/$defs/multilingual_text" },
+        "category": {
+          "type": "string",
+          "enum": ["facade", "lobby", "room", "bathroom", "view", "pool", "gym", "restaurant", "bar", "garden", "meeting_room", "spa", "parking", "other"]
+        },
+        "order": { "type": "integer", "minimum": 1 },
+        "hero":  { "type": "boolean" }
+      }
+    }
+  }
+}

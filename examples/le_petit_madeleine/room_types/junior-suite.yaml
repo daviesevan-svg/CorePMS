@@ -1,0 +1,98 @@
+schema_version: "1.0"
+id: junior-suite
+name:
+  en: Junior Suite
+  fr: Suite Junior
+
+description:
+  en: >
+    The hotel's flagship room occupying the entire third floor. A separate
+    lounge area with a sofa bed, a wraparound private terrace with panoramic
+    views from the Alps to the bay, and a luxurious bathroom with both bath
+    and rain shower. Ideal for longer stays or special occasions.
+  fr: >
+    La chambre phare de l'hôtel occupe tout le troisième étage. Espace salon
+    séparé avec canapé-lit, terrasse privée panoramique avec vue des Alpes à
+    la baie, et salle de bain luxueuse avec baignoire et douche à effet pluie.
+    Idéale pour les séjours prolongés ou les occasions spéciales.
+
+max_occupancy:
+  adults: 2
+  children: 2
+  total: 4
+
+size:
+  sqm: 55
+
+bed_configurations:
+  - label:
+      en: King bed + sofa bed
+      fr: Lit king-size + canapé-lit
+    beds:
+      - type: king
+        count: 1
+      - type: sofa_bed
+        count: 1
+
+views:
+  - sea
+  - city
+  - mountain
+
+floor_range:
+  from: 3
+  to: 3
+
+bathroom:
+  count: 1
+  type: ensuite
+  features:
+    - bathtub
+    - shower
+    - double_sink
+    - heated_floor
+
+accessible: false
+
+amenities:
+  - flat_screen_tv
+  - telephone
+  - hair_dryer
+  - safe
+  - minibar
+  - tea_coffee_maker
+  - iron_ironing_board
+  - blackout_curtains
+  - terrace
+  - bathrobe_slippers
+  - pillow_menu
+  - nespresso_machine
+  - bluetooth_speaker
+  - separate_lounge
+
+photos:
+  - url: https://media.lepetitmadeleine.fr/junior-suite-main.jpg
+    alt:
+      en: Junior Suite with king bed, lounge area, and terrace beyond
+      fr: Suite Junior avec lit king-size, espace salon et terrasse
+    category: room
+    order: 1
+    hero: true
+  - url: https://media.lepetitmadeleine.fr/junior-suite-terrace.jpg
+    alt:
+      en: Wraparound terrace with panoramic view from the Alps to the Baie des Anges
+      fr: Terrasse panoramique avec vue des Alpes à la Baie des Anges
+    category: view
+    order: 2
+  - url: https://media.lepetitmadeleine.fr/junior-suite-lounge.jpg
+    alt:
+      en: Suite lounge with sofa, coffee table, and sea view
+      fr: Salon de la suite avec canapé, table basse et vue mer
+    category: room
+    order: 3
+  - url: https://media.lepetitmadeleine.fr/junior-suite-bathroom.jpg
+    alt:
+      en: Bathroom with freestanding tub and rain shower
+      fr: Salle de bain avec baignoire îlot et douche pluie
+    category: bathroom
+    order: 4

@@ -1,0 +1,202 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.channex.io/property-content/v1/property.json",
+  "title": "Property",
+  "description": "Top-level profile for a hospitality property. One file per property repo, at property.yaml.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "name",
+    "property_type",
+    "address",
+    "geo",
+    "contact",
+    "languages",
+    "currency",
+    "timezone",
+    "check_in",
+    "check_out"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^1\\.\\d+$",
+      "description": "Schema version this file conforms to. Must be a 1.x version."
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$",
+      "description": "Slug-style unique identifier. Used as the GitHub repo name. Immutable after creation."
+    },
+    "name": {
+      "$ref": "#/$defs/multilingual_text",
+      "description": "Property name as it appears to guests."
+    },
+    "description": {
+      "$ref": "#/$defs/multilingual_text",
+      "description": "Short marketing summary (1-3 sentences). Longer content belongs in content/content.yaml."
+    },
+    "property_type": {
+      "type": "string",
+      "enum": [
+        "hotel",
+        "boutique_hotel",
+        "hostel",
+        "guest_house",
+        "bed_and_breakfast",
+        "apartment",
+        "vacation_rental",
+        "villa",
+        "resort",
+        "motel",
+        "other"
+      ]
+    },
+    "star_rating": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5,
+      "description": "Official star rating where applicable."
+    },
+    "address": {
+      "type": "object",
+      "required": ["line1", "city", "country"],
+      "additionalProperties": false,
+      "properties": {
+        "line1": { "type": "string" },
+        "line2": { "type": "string" },
+        "city":  { "type": "string" },
+        "state": { "type": "string", "description": "State, province, or region." },
+        "postal_code": { "type": "string" },
+        "country": {
+          "type": "string",
+          "pattern": "^[A-Z]{2}$",
+          "description": "ISO 3166-1 alpha-2 country code."
+        }
+      }
+    },
+    "geo": {
+      "type": "object",
+      "required": ["lat", "lng"],
+      "additionalProperties": false,
+      "properties": {
+        "lat": { "type": "number", "minimum": -90,  "maximum": 90  },
+        "lng": { "type": "number", "minimum": -180, "maximum": 180 }
+      }
+    },
+    "contact": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "phone":   { "type": "string", "description": "E.164 format preferred, e.g. +33493887766." },
+        "email":   { "type": "string", "format": "email" },
+        "website": { "type": "string", "format": "uri" }
+      }
+    },
+    "languages": {
+      "type": "array",
+      "description": "Languages spoken at the property, ISO 639-1 codes. First entry is the primary language.",
+      "items": { "type": "string", "pattern": "^[a-z]{2}$" },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "currency": {
+      "type": "string",
+      "pattern": "^[A-Z]{3}$",
+      "description": "ISO 4217 currency code. All rate plan prices are in this currency."
+    },
+    "timezone": {
+      "type": "string",
+      "description": "IANA timezone identifier, e.g. Europe/Paris."
+    },
+    "check_in": {
+      "type": "object",
+      "required": ["from"],
+      "additionalProperties": false,
+      "properties": {
+        "from": { "$ref": "#/$defs/time_hhmm", "description": "Earliest check-in time." },
+        "to":   { "$ref": "#/$defs/time_hhmm", "description": "Latest check-in time. Omit if reception is 24h." },
+        "notes": { "$ref": "#/$defs/multilingual_text" }
+      }
+    },
+    "check_out": {
+      "type": "object",
+      "required": ["by"],
+      "additionalProperties": false,
+      "properties": {
+        "by":    { "$ref": "#/$defs/time_hhmm", "description": "Latest check-out time." },
+        "notes": { "$ref": "#/$defs/multilingual_text" }
+      }
+    },
+    "amenities": {
+      "type": "array",
+      "description": "Property-level amenity codes. See amenity taxonomy in the schema docs.",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "photos": {
+      "type": "array",
+      "description": "Ordered list of property-level photos. Room-type photos live in room_types/*.yaml.",
+      "items": { "$ref": "#/$defs/photo" }
+    },
+    "social_media": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "instagram": { "type": "string" },
+        "facebook":  { "type": "string" },
+        "tripadvisor": { "type": "string", "format": "uri" }
+      }
+    }
+  },
+  "$defs": {
+    "multilingual_text": {
+      "type": "object",
+      "description": "User-facing text keyed by ISO 639-1 language code.",
+      "minProperties": 1,
+      "additionalProperties": { "type": "string", "minLength": 1 },
+      "propertyNames": { "pattern": "^[a-z]{2}(-[A-Z]{2})?$" }
+    },
+    "time_hhmm": {
+      "type": "string",
+      "pattern": "^([01]\\d|2[0-3]):[0-5]\\d$",
+      "description": "24-hour time in HH:MM format."
+    },
+    "photo": {
+      "type": "object",
+      "required": ["url", "alt", "category"],
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Absolute URL to image in S3-compatible object storage."
+        },
+        "alt": {
+          "$ref": "#/$defs/multilingual_text",
+          "description": "Alt text for accessibility and AI consumption."
+        },
+        "caption": { "$ref": "#/$defs/multilingual_text" },
+        "category": {
+          "type": "string",
+          "enum": [
+            "facade", "lobby", "room", "bathroom", "view",
+            "pool", "gym", "restaurant", "bar", "garden",
+            "meeting_room", "spa", "parking", "other"
+          ]
+        },
+        "order": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Display order within this entity's photo list."
+        },
+        "hero": {
+          "type": "boolean",
+          "description": "True if this is the primary/hero image for the entity."
+        }
+      }
+    }
+  }
+}

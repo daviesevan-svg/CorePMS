@@ -1,0 +1,81 @@
+schema_version: "1.0"
+id: deluxe-sea-view
+name:
+  en: Deluxe Sea View
+  fr: Chambre Deluxe Vue Mer
+
+description:
+  en: >
+    Spacious rooms on the second floor with unobstructed views of the
+    Mediterranean. Feature a king bed, original parquet flooring, and a
+    private balcony perfect for morning coffee as the sun rises over the bay.
+  fr: >
+    Chambres spacieuses au deuxième étage avec vue imprenable sur la
+    Méditerranée. Lit king-size, parquet d'origine et balcon privé
+    idéal pour prendre le café du matin au lever du soleil sur la baie.
+
+max_occupancy:
+  adults: 2
+  children: 1
+  total: 2
+
+size:
+  sqm: 26
+
+bed_configurations:
+  - label:
+      en: King bed
+      fr: Lit king-size
+    beds:
+      - type: king
+        count: 1
+
+views:
+  - sea
+
+floor_range:
+  from: 2
+  to: 2
+
+bathroom:
+  count: 1
+  type: ensuite
+  features:
+    - shower
+    - bathtub
+
+accessible: false
+
+amenities:
+  - flat_screen_tv
+  - telephone
+  - hair_dryer
+  - safe
+  - minibar
+  - tea_coffee_maker
+  - iron_ironing_board
+  - blackout_curtains
+  - balcony
+  - bathrobe_slippers
+  - pillow_menu
+
+photos:
+  - url: https://media.lepetitmadeleine.fr/deluxe-sea-view-main.jpg
+    alt:
+      en: Deluxe Sea View room with king bed and balcony overlooking the Mediterranean
+      fr: Chambre Deluxe Vue Mer avec lit king-size et balcon sur la Méditerranée
+    category: room
+    order: 1
+    hero: true
+  - url: https://media.lepetitmadeleine.fr/deluxe-sea-view-balcony.jpg
+    alt:
+      en: Private balcony with sea view and two chairs
+      fr: Balcon privé avec vue mer et deux chaises
+    category: view
+    order: 2
+  - url: https://media.lepetitmadeleine.fr/deluxe-sea-view-bathroom.jpg
+    alt:
+      en: Bathroom with freestanding bathtub and sea view window
+      fr: Salle de bain avec baignoire îlot et fenêtre vue mer
+    category: bathroom
+    order: 3

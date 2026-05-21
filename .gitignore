@@ -1,0 +1,32 @@
+# Build artifacts
+/_build/
+/cover/
+/deps/
+/doc/
+/.fetch
+erl_crash.dump
+*.ez
+
+# Generated
+/priv/static/assets/
+/priv/static/cache_manifest.json
+
+# Node
+/assets/node_modules/
+
+# Secrets / env
+/config/*.secret.exs
+.env
+.env.*
+!.env.example
+
+# Editor / OS
+.DS_Store
+.elixir_ls/
+.vscode/
+.idea/
+*.swp
+*~
+
+# Local overrides
+/config/dev.local.exs

@@ -1,0 +1,11 @@
+schema_version: "1.0"
+id: room-102
+room_type_id: classic-room
+name:
+  en: Room 102
+  fr: Chambre 102
+floor: 1
+view: garden
+notes:
+  en: Slightly larger than Room 101 due to the original building layout. Corner position brings additional natural light.
+  fr: Légèrement plus grande que la chambre 101 en raison du plan d'origine. Position en angle apporte une lumière naturelle supplémentaire.

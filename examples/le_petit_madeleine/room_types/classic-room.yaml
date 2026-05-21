@@ -1,0 +1,77 @@
+schema_version: "1.0"
+id: classic-room
+name:
+  en: Classic Room
+  fr: Chambre Classique
+
+description:
+  en: >
+    Comfortable rooms on the first floor with Provençal-patterned fabrics and
+    views over the garden. Perfect for couples or solo travellers seeking a
+    quiet retreat in the heart of Nice.
+  fr: >
+    Chambres confortables au premier étage avec tissus aux motifs provençaux
+    et vue sur le jardin. Idéales pour les couples ou les voyageurs solitaires
+    cherchant un refuge tranquille au cœur de Nice.
+
+max_occupancy:
+  adults: 2
+  children: 1
+  total: 2
+
+size:
+  sqm: 18
+
+bed_configurations:
+  - label:
+      en: Double bed
+      fr: Lit double
+    beds:
+      - type: double
+        count: 1
+  - label:
+      en: Twin beds
+      fr: Lits jumeaux
+    beds:
+      - type: twin
+        count: 2
+
+views:
+  - garden
+
+floor_range:
+  from: 1
+  to: 1
+
+bathroom:
+  count: 1
+  type: ensuite
+  features:
+    - shower
+
+accessible: false
+
+amenities:
+  - flat_screen_tv
+  - telephone
+  - hair_dryer
+  - safe
+  - minibar
+  - tea_coffee_maker
+  - iron_ironing_board
+  - blackout_curtains
+
+photos:
+  - url: https://media.lepetitmadeleine.fr/classic-room-main.jpg
+    alt:
+      en: Classic Room with double bed and garden view
+      fr: Chambre Classique avec lit double et vue jardin
+    category: room
+    order: 1
+    hero: true
+  - url: https://media.lepetitmadeleine.fr/classic-room-bathroom.jpg
+    alt:
+      en: Ensuite shower room with Provençal tiles
+      fr: Salle de bain avec douche et carrelage provençal
+    category: bathroom
+    order: 2

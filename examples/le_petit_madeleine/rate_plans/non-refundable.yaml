@@ -1,0 +1,61 @@
+schema_version: "1.0"
+id: non-refundable
+name:
+  en: Non-Refundable Rate
+  fr: Tarif Non Remboursable
+description:
+  en: Save 15% in exchange for a non-refundable booking. Full payment collected at time of booking.
+  fr: Économisez 15% en échange d'une réservation non remboursable. Paiement intégral à la réservation.
+
+meal_plan: room_only
+
+applies_to:
+  - classic-room
+  - deluxe-sea-view
+  - junior-suite
+
+pricing:
+  room_rates:
+    classic-room: 102
+    deluxe-sea-view: 166
+    junior-suite: 272
+
+  seasonal_modifiers:
+    - label: Summer Peak
+      from: "2025-07-01"
+      to: "2025-08-31"
+      adjustment: "+35%"
+
+    - label: Spring Shoulder
+      from: "2025-04-01"
+      to: "2025-06-30"
+      adjustment: "+15%"
+
+    - label: Autumn Shoulder
+      from: "2025-09-01"
+      to: "2025-10-31"
+      adjustment: "+10%"
+
+    - label: Low Season
+      from: "2025-11-01"
+      to: "2026-03-31"
+      adjustment: "-15%"
+
+  dow_modifiers:
+    friday: "+10%"
+    saturday: "+15%"
+    sunday: "+5%"
+
+  extra_person_fee: 30
+  child_fee: 15
+  child_fee_max_age: 11
+
+restrictions:
+  min_stay_nights: 1
+  advance_booking_min_days: 1    # must book at least 1 day out
+  advance_booking_max_days: 365
+
+cancellation:
+  terms:
+    - before_days: 999
+      refund_percent: 0

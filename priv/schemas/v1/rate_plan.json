@@ -1,0 +1,242 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.channex.io/property-content/v1/rate_plan.json",
+  "title": "Rate Plan",
+  "description": "A commercial offer combining pricing rules, inclusions, restrictions, and cancellation terms. One file per plan in rate_plans/. All monetary values are in the property currency (defined in property.yaml).",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "name",
+    "meal_plan",
+    "applies_to",
+    "pricing",
+    "cancellation"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^1\\.\\d+$"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+    },
+    "name": { "$ref": "#/$defs/multilingual_text" },
+    "description": { "$ref": "#/$defs/multilingual_text" },
+    "meal_plan": {
+      "type": "string",
+      "enum": ["room_only", "bed_and_breakfast", "half_board", "full_board", "all_inclusive"],
+      "description": "Meal inclusions baked into this rate. Additional inclusions listed in the inclusions field."
+    },
+    "applies_to": {
+      "type": "array",
+      "description": "Room type IDs this plan is offered for. Must reference IDs from room_types/.",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "pricing": {
+      "type": "object",
+      "required": ["room_rates"],
+      "additionalProperties": false,
+      "description": "Pricing rules. Nightly rate is computed as: base_rate × seasonal_modifier × dow_modifier.",
+      "properties": {
+        "room_rates": {
+          "type": "object",
+          "description": "Base nightly rate per room type. Keys must be IDs from applies_to. Values are in the property currency.",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "number",
+            "exclusiveMinimum": 0
+          }
+        },
+        "seasonal_modifiers": {
+          "type": "array",
+          "description": "Date-range price adjustments. Evaluated in order; the first matching range applies. Ranges may not overlap — define them precisely.",
+          "items": {
+            "type": "object",
+            "required": ["label", "from", "to", "adjustment"],
+            "additionalProperties": false,
+            "properties": {
+              "label": {
+                "type": "string",
+                "description": "Human-readable label, e.g. 'Summer Peak' or 'Low Season'."
+              },
+              "from": {
+                "type": "string",
+                "format": "date",
+                "description": "Start date inclusive, YYYY-MM-DD."
+              },
+              "to": {
+                "type": "string",
+                "format": "date",
+                "description": "End date inclusive, YYYY-MM-DD."
+              },
+              "adjustment": { "$ref": "#/$defs/price_adjustment" }
+            }
+          }
+        },
+        "dow_modifiers": {
+          "type": "object",
+          "description": "Day-of-week adjustments. Applied after the seasonal modifier, if any.",
+          "additionalProperties": false,
+          "properties": {
+            "monday":    { "$ref": "#/$defs/price_adjustment" },
+            "tuesday":   { "$ref": "#/$defs/price_adjustment" },
+            "wednesday": { "$ref": "#/$defs/price_adjustment" },
+            "thursday":  { "$ref": "#/$defs/price_adjustment" },
+            "friday":    { "$ref": "#/$defs/price_adjustment" },
+            "saturday":  { "$ref": "#/$defs/price_adjustment" },
+            "sunday":    { "$ref": "#/$defs/price_adjustment" }
+          }
+        },
+        "extra_person_fee": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Surcharge per additional adult beyond the room's standard occupancy. In property currency, per night."
+        },
+        "child_fee": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Nightly surcharge per child. If 0, children stay free. Applies to children of any age unless child_fee_max_age is set."
+        },
+        "child_fee_max_age": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Children up to and including this age receive the child_fee rate. Older children are charged the extra_person_fee."
+        }
+      }
+    },
+    "inclusions": {
+      "type": "array",
+      "description": "Additional items included in the rate beyond the meal plan.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "wifi",
+          "parking",
+          "airport_transfer",
+          "spa_access",
+          "gym_access",
+          "bicycle_rental",
+          "minibar",
+          "welcome_drink",
+          "late_checkout",
+          "early_checkin",
+          "other"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "inclusions_notes": {
+      "$ref": "#/$defs/multilingual_text",
+      "description": "Clarification for 'other' inclusions or details about standard ones."
+    },
+    "restrictions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "min_stay_nights": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Minimum length of stay to book this rate."
+        },
+        "max_stay_nights": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "advance_booking_min_days": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Must book at least this many days before arrival. 0 means same-day booking allowed."
+        },
+        "advance_booking_max_days": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Cannot book more than this many days in advance."
+        },
+        "closed_to_arrival": {
+          "type": "array",
+          "description": "Guests may not start a stay on these days of the week.",
+          "items": { "$ref": "#/$defs/day_of_week" },
+          "uniqueItems": true
+        },
+        "closed_to_departure": {
+          "type": "array",
+          "description": "Guests may not end a stay on these days of the week.",
+          "items": { "$ref": "#/$defs/day_of_week" },
+          "uniqueItems": true
+        }
+      }
+    },
+    "cancellation": {
+      "description": "Cancellation terms for this rate plan. Either reference a named policy from policies.yaml (by id) or define the terms inline.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["policy_id"],
+          "additionalProperties": false,
+          "properties": {
+            "policy_id": {
+              "type": "string",
+              "description": "References a cancellation policy id defined in policies/policies.yaml."
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["terms"],
+          "additionalProperties": false,
+          "properties": {
+            "terms": {
+              "type": "array",
+              "description": "Ordered tiers, most generous first. Each tier applies when cancellation occurs at least before_days before the arrival date. Use before_days: 0 for the no-show / same-day rule.",
+              "items": { "$ref": "#/$defs/cancellation_term" },
+              "minItems": 1
+            },
+            "notes": { "$ref": "#/$defs/multilingual_text" }
+          }
+        }
+      ]
+    }
+  },
+  "$defs": {
+    "multilingual_text": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "type": "string", "minLength": 1 },
+      "propertyNames": { "pattern": "^[a-z]{2}(-[A-Z]{2})?$" }
+    },
+    "price_adjustment": {
+      "type": "string",
+      "description": "Percentage (e.g. '+25%', '-10%') or fixed amount (e.g. '+30', '-20.50') in property currency. Percentage adjustments stack multiplicatively when both seasonal and day-of-week apply: final = base × seasonal × dow.",
+      "pattern": "^[+-]\\d+(\\.\\d{1,2})?%?$"
+    },
+    "day_of_week": {
+      "type": "string",
+      "enum": ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+    },
+    "cancellation_term": {
+      "type": "object",
+      "required": ["before_days", "refund_percent"],
+      "additionalProperties": false,
+      "properties": {
+        "before_days": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "This tier applies when the guest cancels at least this many full days before the arrival date."
+        },
+        "refund_percent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        }
+      }
+    }
+  }
+}

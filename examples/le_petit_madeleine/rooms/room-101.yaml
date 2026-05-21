@@ -1,0 +1,8 @@
+schema_version: "1.0"
+id: room-101
+room_type_id: classic-room
+name:
+  en: Room 101
+  fr: Chambre 101
+floor: 1
+view: garden

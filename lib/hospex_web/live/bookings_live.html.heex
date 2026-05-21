@@ -1,0 +1,358 @@
+<div class="app bookings-app">
+
+  <%!-- ── Top bar (same as other pages) ─────────────────────────── --%>
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div class="brand-name">Hospex</div>
+    </div>
+    <div class="brand-sep"></div>
+    <div class="property">
+      <div class="property-avatar">LM</div>
+      <div class="property-name">Le Petit Madeleine</div>
+      <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6 8 10.5 12.5 6"/></svg>
+    </div>
+    <div class="navtabs">
+      <.link patch="/dashboard" class="navtab">Dashboard</.link>
+      <.link patch="/calendar"  class="navtab">Calendar</.link>
+      <.link patch="/bookings"  class="navtab" data-active="1">Bookings</.link>
+      <button class="navtab">Guests</button>
+      <.link patch="/inventory" class="navtab">Inventory</.link>
+      <button class="navtab">Reports</button>
+    </div>
+    <div class="top-right">
+      <button class="icon-btn" title="Help">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M6 6.5a2 2 0 1 1 2.5 2c-.6.2-.5.7-.5 1.5"/><circle cx="8" cy="12" r=".5" fill="currentColor" stroke="none"/></svg>
+      </button>
+      <button class="icon-btn" title="Notifications">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7a4 4 0 1 1 8 0v3l1 2H3l1-2V7Z"/><path d="M6.5 13.5a1.5 1.5 0 0 0 3 0"/></svg>
+        <span class="badge-dot"></span>
+      </button>
+      <button class="icon-btn" title="Settings">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2"/><path d="M8 1.5v2M8 12.5v2M14.5 8h-2M3.5 8h-2M12.6 3.4 11.2 4.8M4.8 11.2l-1.4 1.4M12.6 12.6l-1.4-1.4M4.8 4.8 3.4 3.4"/></svg>
+      </button>
+      <div class="me-avatar">EM</div>
+    </div>
+  </div>
+
+  <%!-- ── Page header ───────────────────────────────────────────── --%>
+  <div class="bk-head">
+    <div class="bk-title">
+      <h1>Bookings</h1>
+      <span class="bk-count"><%= length(@visible_bookings) %> / <%= length(@all_bookings) %></span>
+    </div>
+
+    <div class="bk-filters">
+      <form phx-change="search" onsubmit="event.preventDefault()" class="bk-search">
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="4"/><path d="m10 10 3 3"/></svg>
+        <input name="q" value={@search_query} placeholder="Search guest, ref, room number…" phx-debounce="200" />
+      </form>
+
+      <form phx-change="filter_status" class="filter-chip-form">
+        <label class="filter-chip" data-active={if @filter_status, do: "1", else: "0"}>
+          Status: <%= case @filter_status do
+                        nil -> "All"
+                        s   -> status_label(s)
+                      end %>
+          <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6 8 10.5 12.5 6"/></svg>
+          <select name="status" class="chip-native">
+            <option value="" selected={is_nil(@filter_status)}>All</option>
+            <option value="paid"      selected={@filter_status == :paid}>Paid</option>
+            <option value="partial"   selected={@filter_status == :partial}>Partial</option>
+            <option value="unpaid"    selected={@filter_status == :unpaid}>Unpaid</option>
+            <option value="in"        selected={@filter_status == :in}>In-house</option>
+            <option value="hold"      selected={@filter_status == :hold}>Hold</option>
+            <option value="cancelled" selected={@filter_status == :cancelled}>Cancelled</option>
+          </select>
+        </label>
+      </form>
+
+      <form phx-change="filter_channel" class="filter-chip-form">
+        <label class="filter-chip" data-active={if @filter_channel, do: "1", else: "0"}>
+          Channel: <%= channel_name(@filter_channel || "All") %>
+          <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6 8 10.5 12.5 6"/></svg>
+          <select name="channel" class="chip-native">
+            <option value="" selected={is_nil(@filter_channel)}>All</option>
+            <option value="DR" selected={@filter_channel == "DR"}>Direct</option>
+            <option value="BC" selected={@filter_channel == "BC"}>Booking.com</option>
+            <option value="AB" selected={@filter_channel == "AB"}>Airbnb</option>
+            <option value="EX" selected={@filter_channel == "EX"}>Expedia</option>
+          </select>
+        </label>
+      </form>
+
+      <%!-- Date filter chip + dropdown panel --%>
+      <div class="date-filter-wrap" phx-click-away="close_date_filters">
+        <button class="filter-chip"
+                data-active={if date_filters_active?(@date_filters), do: "1", else: "0"}
+                phx-click="toggle_date_filters">
+          Dates
+          <%= if date_filters_active?(@date_filters) do %>
+            <span class="chip-badge"><%= date_filters_count(@date_filters) %></span>
+          <% end %>
+          <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6 8 10.5 12.5 6"/></svg>
+        </button>
+
+        <%= if @date_filters_open do %>
+          <div class="date-filter-pop">
+            <form phx-change="date_filters_change" onsubmit="event.preventDefault()">
+              <div class="dfp-section">
+                <div class="dfp-label">Arrival (check-in)</div>
+                <div class="dfp-range">
+                  <input type="date" name="arrival_from" value={fmt_iso_d(@date_filters.arrival_from)} />
+                  <span class="dfp-sep">→</span>
+                  <input type="date" name="arrival_to"   value={fmt_iso_d(@date_filters.arrival_to)} />
+                </div>
+              </div>
+
+              <div class="dfp-section">
+                <div class="dfp-label">Departure (check-out)</div>
+                <div class="dfp-range">
+                  <input type="date" name="departure_from" value={fmt_iso_d(@date_filters.departure_from)} />
+                  <span class="dfp-sep">→</span>
+                  <input type="date" name="departure_to"   value={fmt_iso_d(@date_filters.departure_to)} />
+                </div>
+              </div>
+
+              <div class="dfp-section">
+                <div class="dfp-label">Booked on</div>
+                <div class="dfp-range">
+                  <input type="date" name="booked_from" value={fmt_iso_d(@date_filters.booked_from)} />
+                  <span class="dfp-sep">→</span>
+                  <input type="date" name="booked_to"   value={fmt_iso_d(@date_filters.booked_to)} />
+                </div>
+              </div>
+            </form>
+
+            <div class="dfp-foot">
+              <button class="dfp-reset" phx-click="reset_date_filters"
+                      disabled={not date_filters_active?(@date_filters)}>
+                Reset
+              </button>
+              <button class="dfp-done" phx-click="close_date_filters">Done</button>
+            </div>
+          </div>
+        <% end %>
+      </div>
+    </div>
+  </div>
+
+  <%!-- ── Table ─────────────────────────────────────────────────── --%>
+  <div class="bk-body">
+    <%= if @visible_bookings == [] do %>
+      <div class="bk-empty">No bookings match your filters.</div>
+    <% else %>
+      <div class="bk-table">
+        <div class="bk-tr bk-head-row">
+          <button class="bk-th" phx-click="sort" phx-value-by="ref">Reference<%= sort_caret(@sort_by, :ref, @sort_dir) %></button>
+          <button class="bk-th" phx-click="sort" phx-value-by="lead_guest">Lead guest<%= sort_caret(@sort_by, :lead_guest, @sort_dir) %></button>
+          <button class="bk-th" phx-click="sort" phx-value-by="rooms">Rooms<%= sort_caret(@sort_by, :rooms, @sort_dir) %></button>
+          <button class="bk-th" phx-click="sort" phx-value-by="check_in">Check-in<%= sort_caret(@sort_by, :check_in, @sort_dir) %></button>
+          <button class="bk-th" phx-click="sort" phx-value-by="check_out">Check-out<%= sort_caret(@sort_by, :check_out, @sort_dir) %></button>
+          <button class="bk-th" phx-click="sort" phx-value-by="status">Status<%= sort_caret(@sort_by, :status, @sort_dir) %></button>
+          <button class="bk-th right" phx-click="sort" phx-value-by="total">Total<%= sort_caret(@sort_by, :total, @sort_dir) %></button>
+          <button class="bk-th right" phx-click="sort" phx-value-by="balance">Balance<%= sort_caret(@sort_by, :balance, @sort_dir) %></button>
+        </div>
+
+        <%= for b <- @visible_bookings do %>
+          <% balance = b.total - b.paid %>
+          <% avc = avatar_color(b.lead_guest) %>
+          <div class="bk-tr" phx-click="open_calendar" phx-value-id={b.id}>
+            <div class="bk-td bk-ref"><%= b.ref %></div>
+            <div class="bk-td">
+              <span class="bk-avatar" style={"background:#{elem(avc, 0)};color:#{elem(avc, 1)}"}><%= initials(b.lead_guest) %></span>
+              <span class="bk-name"><%= b.lead_guest %></span>
+            </div>
+            <div class="bk-td bk-rooms">
+              <span class="bk-rooms-count"><%= length(b.stays) %></span>
+              <span class="bk-rooms-list">
+                <%= b.stays |> Enum.map(&room_num(&1.room_id)) |> Enum.join(", ") %>
+              </span>
+            </div>
+            <div class="bk-td mono"><%= fmt_date(b.check_in) %></div>
+            <div class="bk-td mono"><%= fmt_date(b.check_out) %></div>
+            <div class="bk-td">
+              <span class="status-pill" data-s={b.status}>
+                <span class="dot"></span>
+                <%= status_label(b.status) %>
+              </span>
+            </div>
+            <div class="bk-td mono right"><%= fmt_money(b.total) %></div>
+            <div class={"bk-td mono right" <> if(balance > 0, do: " bk-due", else: "")}>
+              <%= if balance == 0, do: "—", else: fmt_money(balance) %>
+            </div>
+          </div>
+        <% end %>
+      </div>
+    <% end %>
+  </div>
+</div>
+
+<style>
+  .bookings-app { background: var(--bg-sunk); }
+  .bk-head {
+    display: flex; align-items: flex-end; gap: 16px;
+    padding: 18px 22px 12px;
+    flex-shrink: 0; flex-wrap: wrap;
+  }
+  .bk-title { display: flex; align-items: baseline; gap: 10px; }
+  .bk-title h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.02em; color: var(--ink); margin: 0; }
+  .bk-count {
+    font-family: 'Geist Mono', monospace; font-size: 12px; color: var(--ink-3);
+    background: var(--bg-elev); border: 1px solid var(--line);
+    padding: 2px 8px; border-radius: 999px;
+  }
+  .bk-filters {
+    margin-left: auto;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .filter-chip-form { display: contents; }
+
+  /* Date filter chip + dropdown popover */
+  .date-filter-wrap { position: relative; }
+  .chip-badge {
+    display: inline-grid; place-items: center;
+    min-width: 16px; height: 16px; padding: 0 5px;
+    border-radius: 999px;
+    background: var(--accent); color: var(--bg-elev);
+    font-family: 'Geist Mono', monospace; font-size: 10px; font-weight: 700;
+    margin-left: 2px;
+  }
+  .date-filter-pop {
+    position: absolute; top: calc(100% + 6px); right: 0;
+    background: var(--bg-elev);
+    border: 1px solid var(--line); border-radius: 10px;
+    box-shadow: 0 16px 36px rgba(16,24,40,0.14), 0 4px 10px rgba(16,24,40,0.06);
+    padding: 12px 14px; z-index: 30;
+    width: 320px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .dfp-section { display: flex; flex-direction: column; gap: 5px; }
+  .dfp-label {
+    font-size: 10.5px; font-weight: 600; letter-spacing: 0.05em;
+    text-transform: uppercase; color: var(--ink-3);
+  }
+  .dfp-range {
+    display: grid; grid-template-columns: 1fr 14px 1fr;
+    align-items: center; gap: 6px;
+  }
+  .dfp-range input[type="date"] {
+    appearance: none; height: 32px; padding: 0 8px;
+    border: 1px solid var(--line); border-radius: 7px;
+    background: var(--bg-elev); color: var(--ink);
+    font: inherit; font-size: 12.5px; outline: 0;
+    font-family: 'Geist Mono', monospace;
+  }
+  .dfp-range input[type="date"]:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px var(--accent-soft);
+  }
+  .dfp-sep { color: var(--ink-4); text-align: center; }
+  .dfp-foot {
+    display: flex; gap: 8px;
+    border-top: 1px solid var(--line); padding-top: 10px;
+  }
+  .dfp-foot button {
+    appearance: none; cursor: pointer;
+    height: 30px; padding: 0 14px; border-radius: 7px;
+    font: inherit; font-size: 12.5px; font-weight: 500;
+  }
+  .dfp-reset {
+    border: 1px solid var(--line); background: var(--bg-elev); color: var(--ink-2);
+  }
+  .dfp-reset:hover:not(:disabled) {
+    border-color: var(--line-strong); color: var(--ink); background: var(--bg-sunk);
+  }
+  .dfp-reset:disabled { opacity: 0.4; cursor: not-allowed; }
+  .dfp-done {
+    margin-left: auto;
+    background: var(--ink); color: var(--bg-elev); border: 1px solid var(--ink);
+  }
+  .dfp-done:hover { background: oklch(14% 0.012 260); }
+  .bk-search {
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--bg-elev); border: 1px solid var(--line);
+    height: 32px; padding: 0 10px; border-radius: 8px;
+    color: var(--ink-3);
+  }
+  .bk-search input {
+    border: 0; outline: 0; background: transparent;
+    font: inherit; font-size: 12.5px; color: var(--ink);
+    width: 240px;
+  }
+  .bk-body {
+    flex: 1; min-height: 0; overflow-y: auto;
+    padding: 0 22px 24px;
+  }
+  .bk-empty {
+    background: var(--bg-elev); border: 1px solid var(--line); border-radius: 12px;
+    padding: 30px 18px; text-align: center; color: var(--ink-3); font-size: 13px;
+  }
+  .bk-table {
+    background: var(--bg-elev); border: 1px solid var(--line); border-radius: 12px;
+    overflow: hidden;
+  }
+  .bk-tr {
+    display: grid;
+    grid-template-columns:
+      110px            /* ref */
+      minmax(180px, 1.5fr) /* lead guest */
+      minmax(110px, 1fr)   /* rooms */
+      120px            /* check-in */
+      120px            /* check-out */
+      130px            /* status */
+      100px            /* total */
+      100px;           /* balance */
+    align-items: center;
+    padding: 11px 16px;
+    border-top: 1px solid var(--line);
+    font-size: 12.5px;
+    gap: 12px;
+    cursor: pointer;
+    transition: background .12s;
+  }
+  .bk-tr:first-child { border-top: 0; }
+  .bk-tr:hover:not(.bk-head-row) { background: oklch(98.5% 0.003 250); }
+
+  .bk-head-row {
+    background: var(--bg-sunk); cursor: default;
+    border-bottom: 1px solid var(--line);
+  }
+  .bk-th {
+    appearance: none; border: 0; background: transparent;
+    text-align: left; font: inherit; cursor: pointer;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--ink-3);
+    padding: 0;
+  }
+  .bk-th:hover { color: var(--ink); }
+  .bk-th.right { text-align: right; }
+
+  .bk-td { min-width: 0; display: flex; align-items: center; gap: 8px; }
+  .bk-td.right { justify-content: flex-end; }
+  .bk-td.mono { font-family: 'Geist Mono', monospace; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+  .bk-td.bk-due { color: var(--unpaid-ink); font-weight: 600; }
+
+  .bk-ref { font-family: 'Geist Mono', monospace; font-weight: 500; color: var(--ink-2); }
+  .bk-avatar {
+    width: 24px; height: 24px; border-radius: 50%;
+    display: grid; place-items: center; flex-shrink: 0;
+    font-size: 10px; font-weight: 600; color: #fff;
+    box-shadow: inset 0 -1px 0 rgba(0,0,0,.06);
+  }
+  .bk-name { font-weight: 500; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .bk-rooms { display: flex; align-items: center; gap: 6px; }
+  .bk-rooms-count {
+    display: inline-grid; place-items: center;
+    min-width: 22px; height: 20px; padding: 0 6px;
+    border-radius: 5px;
+    background: var(--bg-sunk); border: 1px solid var(--line);
+    font-family: 'Geist Mono', monospace; font-size: 11px; font-weight: 600;
+    color: var(--ink);
+  }
+  .bk-rooms-list {
+    font-family: 'Geist Mono', monospace; font-size: 11.5px; color: var(--ink-3);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+  }
+</style>

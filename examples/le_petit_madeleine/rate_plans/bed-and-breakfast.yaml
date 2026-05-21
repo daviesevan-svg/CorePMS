@@ -1,0 +1,70 @@
+schema_version: "1.0"
+id: bed-and-breakfast
+name:
+  en: Bed & Breakfast
+  fr: Chambre & Petit-Déjeuner
+description:
+  en: >
+    Start your morning right with our continental breakfast included: freshly
+    baked pastries, local cheeses, charcuterie, seasonal fruit, and
+    Provençal honey. Served in the garden from 08:00–10:30.
+  fr: >
+    Commencez votre matinée avec notre petit-déjeuner continental inclus :
+    viennoiseries fraîches, fromages locaux, charcuterie, fruits de saison
+    et miel provençal. Servi dans le jardin de 08h00 à 10h30.
+
+meal_plan: bed_and_breakfast
+
+applies_to:
+  - classic-room
+  - deluxe-sea-view
+  - junior-suite
+
+pricing:
+  # Breakfast adds a flat supplement on top of the flexible rate base prices
+  room_rates:
+    classic-room: 148
+    deluxe-sea-view: 228
+    junior-suite: 368
+
+  seasonal_modifiers:
+    - label: Summer Peak
+      from: "2025-07-01"
+      to: "2025-08-31"
+      adjustment: "+35%"
+
+    - label: Spring Shoulder
+      from: "2025-04-01"
+      to: "2025-06-30"
+      adjustment: "+15%"
+
+    - label: Autumn Shoulder
+      from: "2025-09-01"
+      to: "2025-10-31"
+      adjustment: "+10%"
+
+    - label: Low Season
+      from: "2025-11-01"
+      to: "2026-03-31"
+      adjustment: "-15%"
+
+  dow_modifiers:
+    friday: "+10%"
+    saturday: "+15%"
+    sunday: "+5%"
+
+  extra_person_fee: 44   # base extra_person_fee + breakfast supplement
+  child_fee: 22
+  child_fee_max_age: 11
+
+inclusions_notes:
+  en: Breakfast is served in the garden weather permitting, otherwise in the dining room.
+  fr: Le petit-déjeuner est servi dans le jardin si le temps le permet, sinon en salle.
+
+restrictions:
+  min_stay_nights: 2     # B&B rate requires minimum 2-night stay
+  advance_booking_min_days: 0
+  advance_booking_max_days: 365
+
+cancellation:
+  policy_id: flexible-48h

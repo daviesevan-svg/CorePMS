@@ -1,0 +1,84 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.channex.io/property-content/v1/content.json",
+  "title": "Content",
+  "description": "Marketing copy, FAQs, and location context. Longer-form editorial content that complements the structured data in property.yaml. One file at content/content.yaml.",
+  "type": "object",
+  "required": ["schema_version"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^1\\.\\d+$"
+    },
+    "about": {
+      "$ref": "#/$defs/multilingual_text",
+      "description": "Full property description for use in IBE, OTA listings, and marketing. Markdown supported."
+    },
+    "highlights": {
+      "type": "array",
+      "description": "Short bullet-point selling points. Shown prominently in search results and booking widgets.",
+      "items": { "$ref": "#/$defs/multilingual_text" },
+      "maxItems": 10
+    },
+    "location_description": {
+      "$ref": "#/$defs/multilingual_text",
+      "description": "Neighbourhood context, nearby landmarks, how to get there."
+    },
+    "faqs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["question", "answer"],
+        "additionalProperties": false,
+        "properties": {
+          "question": { "$ref": "#/$defs/multilingual_text" },
+          "answer":   { "$ref": "#/$defs/multilingual_text" }
+        }
+      }
+    },
+    "nearby": {
+      "type": "array",
+      "description": "Points of interest close to the property.",
+      "items": {
+        "type": "object",
+        "required": ["category", "name", "distance_meters"],
+        "additionalProperties": false,
+        "properties": {
+          "category": {
+            "type": "string",
+            "enum": [
+              "airport", "train_station", "bus_stop", "metro",
+              "beach", "ski_slope", "park", "golf_course",
+              "restaurant", "bar", "supermarket", "pharmacy",
+              "hospital", "museum", "shopping", "attraction", "other"
+            ]
+          },
+          "name":             { "type": "string" },
+          "distance_meters":  { "type": "integer", "minimum": 0 },
+          "notes":            { "$ref": "#/$defs/multilingual_text" }
+        }
+      }
+    },
+    "getting_here": {
+      "type": "object",
+      "description": "Directions by different transport modes.",
+      "additionalProperties": false,
+      "properties": {
+        "by_car":    { "$ref": "#/$defs/multilingual_text" },
+        "by_train":  { "$ref": "#/$defs/multilingual_text" },
+        "by_plane":  { "$ref": "#/$defs/multilingual_text" },
+        "by_bus":    { "$ref": "#/$defs/multilingual_text" },
+        "by_foot":   { "$ref": "#/$defs/multilingual_text" }
+      }
+    }
+  },
+  "$defs": {
+    "multilingual_text": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "type": "string", "minLength": 1 },
+      "propertyNames": { "pattern": "^[a-z]{2}(-[A-Z]{2})?$" }
+    }
+  }
+}

@@ -1,0 +1,91 @@
+schema_version: "1.0"
+
+# Named cancellation policies. Rate plans reference these by id.
+# The flexible-48h policy is used by the Flexible and B&B rates.
+# The non-refundable rate defines its own inline terms.
+cancellation_policies:
+  - id: flexible-48h
+    name:
+      en: Flexible — Free cancellation until 48 hours before arrival
+      fr: Flexible — Annulation gratuite jusqu'à 48 heures avant l'arrivée
+    terms:
+      - before_days: 2
+        refund_percent: 100
+      - before_days: 0
+        refund_percent: 0
+    notes:
+      en: Cancellations received less than 48 hours before arrival forfeit the first night's charge.
+      fr: Les annulations reçues moins de 48 heures avant l'arrivée entraînent la perte de la première nuit.
+
+check_in:
+  from: "15:00"
+  to: "22:00"
+  early_check_in: available_on_request
+  instructions:
+    en: >
+      On arrival, ring the bell at the main entrance. Reception is staffed
+      from 08:00–22:00. For late arrivals after 22:00, a key safe code will
+      be provided by email 24 hours before your stay.
+    fr: >
+      À l'arrivée, sonnez à l'entrée principale. La réception est ouverte
+      de 08h00 à 22h00. Pour les arrivées tardives après 22h00, un code
+      de coffre à clés sera communiqué par email 24 heures avant votre séjour.
+
+check_out:
+  by: "11:00"
+  late_check_out: available_on_request
+  instructions:
+    en: Please return your key to reception or the key safe. Luggage can be stored until 18:00.
+    fr: Veuillez remettre votre clé à la réception ou dans le coffre à clés. Les bagages peuvent être conservés jusqu'à 18h00.
+
+children:
+  allowed: true
+  min_age: 0
+  cots_available: true
+  cot_fee: 0
+  notes:
+    en: Cots available on request at no charge. Children under 2 stay free when sharing parents' room. Extra beds are not available.
+    fr: Lits bébé disponibles sur demande et sans frais. Les enfants de moins de 2 ans séjournent gratuitement dans la chambre des parents. Les lits supplémentaires ne sont pas disponibles.
+
+pets:
+  allowed: false
+  notes:
+    en: We regret that pets are not permitted at Le Petit Madeleine, with the exception of certified assistance animals.
+    fr: Nous regrettons que les animaux de compagnie ne soient pas autorisés au Petit Madeleine, à l'exception des animaux d'assistance certifiés.
+
+smoking:
+  allowed_indoors: false
+  designated_areas: true
+  notes:
+    en: Smoking is not permitted anywhere inside the building. A designated outdoor area is available in the garden.
+    fr: Il est interdit de fumer dans tout le bâtiment. Un espace fumeurs est disponible dans le jardin.
+
+deposit:
+  required: true
+  type: credit_card_hold
+  amount_percent: 20
+  notes:
+    en: A pre-authorisation of 20% of the total stay value will be placed on your card at check-in. No charge is made unless there is damage or incidentals.
+    fr: Une pré-autorisation de 20% de la valeur totale du séjour sera effectuée sur votre carte à l'arrivée. Aucun prélèvement n'est effectué sauf en cas de dommages.
+
+quiet_hours:
+  from: "22:00"
+  to: "08:00"
+  notes:
+    en: We ask guests to respect quiet hours out of consideration for neighbours and other guests.
+    fr: Nous demandons aux clients de respecter les heures de silence par égard pour les voisins et les autres clients.
+
+internet:
+  available: true
+  type: wifi
+  coverage: all_areas
+  free: true
+
+parking:
+  available: true
+  type: public
+  reservation_required: false
+  free: true
+  notes:
+    en: Free on-street parking is available on Rue de la Liberté and surrounding streets. Spaces are not guaranteed.
+    fr: Le stationnement gratuit en voirie est disponible rue de la Liberté et dans les rues environnantes. Les places ne sont pas garanties.

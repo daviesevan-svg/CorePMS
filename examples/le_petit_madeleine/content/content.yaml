@@ -1,0 +1,158 @@
+schema_version: "1.0"
+
+about:
+  en: |
+    Nestled in a Belle Époque townhouse two minutes from the Promenade des
+    Anglais, Le Petit Madeleine is a family-run boutique hotel that has
+    welcomed guests to the French Riviera since 1987.
+
+    The hotel's five rooms — each individually decorated with antiques sourced
+    from Provence's brocantes — blend genuine period character with the comforts
+    guests expect: powerful showers, blackout curtains, fast Wi-Fi. The building
+    retains its original encaustic tile floors, wrought-iron banisters, and
+    hand-painted ceiling friezes in the common areas.
+
+    Breakfast is served in the garden from spring to autumn: warm pastries from
+    the boulangerie two streets away, local cheeses, charcuterie from the market,
+    and jars of Provençal honey from the owner's family farm inland. In winter,
+    the small dining room becomes the gathering point.
+
+    The owners, Isabelle and Pierre Moreau, live on the top floor and take a
+    genuine interest in guests' visits — expect honest local recommendations,
+    help with restaurant bookings, and the kind of attentiveness that a
+    five-room hotel can offer where a large hotel cannot.
+  fr: |
+    Nichée dans une maison de ville Belle Époque à deux minutes de la Promenade
+    des Anglais, Le Petit Madeleine est un boutique hôtel familial qui accueille
+    des clients sur la Côte d'Azur depuis 1987.
+
+    Les cinq chambres de l'hôtel — chacune décorée individuellement avec des
+    antiquités provenant des brocantes de Provence — mêlent un véritable cachet
+    d'époque aux conforts attendus : douches puissantes, rideaux occultants,
+    Wi-Fi rapide. Le bâtiment conserve ses carreaux de ciment d'origine,
+    sa rampe en fer forgé et ses frises peintes à la main dans les parties communes.
+
+    Le petit-déjeuner est servi dans le jardin du printemps à l'automne :
+    viennoiseries chaudes de la boulangerie située à deux rues, fromages locaux,
+    charcuterie du marché et pots de miel provençal de la ferme familiale des
+    propriétaires à l'intérieur des terres.
+
+    Les propriétaires, Isabelle et Pierre Moreau, habitent au dernier étage et
+    s'intéressent sincèrement aux séjours de leurs clients.
+
+highlights:
+  - en: Steps from the Promenade des Anglais and the beach
+    fr: À deux pas de la Promenade des Anglais et de la plage
+  - en: Family-run since 1987 — genuine Riviera hospitality
+    fr: En famille depuis 1987 — véritable hospitalité de la Riviera
+  - en: Five individually decorated rooms with sea or garden views
+    fr: Cinq chambres décorées individuellement avec vue mer ou jardin
+  - en: Garden breakfast with pastries from the local boulangerie
+    fr: Petit-déjeuner au jardin avec viennoiseries de la boulangerie locale
+  - en: Free Wi-Fi throughout and complimentary parking nearby
+    fr: Wi-Fi gratuit dans tout l'hôtel et parking gratuit à proximité
+
+location_description:
+  en: |
+    Le Petit Madeleine sits on a quiet residential street in the heart of Nice,
+    50 metres from the sea and a short walk from the old town (Vieux-Nice).
+
+    The Promenade des Anglais is a 2-minute walk. The nearest beach (Plage Beau
+    Rivage) is 5 minutes on foot. Nice's flower market (Cours Saleya) is 10
+    minutes by foot through the old town's narrow lanes.
+
+    For day trips: Monaco is 30 minutes by train, Cannes is 40 minutes, and
+    Antibes is 20 minutes. The train station (Nice-Ville) is a 15-minute walk
+    or a 5-minute taxi ride.
+  fr: |
+    Le Petit Madeleine est situé dans une rue résidentielle calme au cœur de
+    Nice, à 50 mètres de la mer et à quelques minutes à pied du Vieux-Nice.
+
+    La Promenade des Anglais est à 2 minutes à pied. La plage la plus proche
+    (Plage Beau Rivage) est à 5 minutes à pied. Le marché aux fleurs de Nice
+    (Cours Saleya) est à 10 minutes à pied.
+
+faqs:
+  - question:
+      en: Is breakfast included in all rates?
+      fr: Le petit-déjeuner est-il inclus dans tous les tarifs ?
+    answer:
+      en: Breakfast is included in the Bed & Breakfast rate. It can be added to other rates for €28 per person per day. Children under 12 pay €14.
+      fr: Le petit-déjeuner est inclus dans le tarif Chambre & Petit-Déjeuner. Il peut être ajouté aux autres tarifs pour 28 € par personne et par jour. Les enfants de moins de 12 ans paient 14 €.
+
+  - question:
+      en: Is there a car park?
+      fr: Y a-t-il un parking ?
+    answer:
+      en: We don't have a private car park, but free on-street parking is usually available on Rue de la Liberté and the surrounding streets. The nearest paid car park is 200 metres away on Rue Gubernatis.
+      fr: Nous n'avons pas de parking privé, mais des places en voirie gratuites sont généralement disponibles rue de la Liberté et dans les rues environnantes. Le parking payant le plus proche est à 200 mètres rue Gubernatis.
+
+  - question:
+      en: Do you accept pets?
+      fr: Acceptez-vous les animaux ?
+    answer:
+      en: We're sorry, pets are not permitted at Le Petit Madeleine, with the exception of certified assistance animals.
+      fr: Nous regrettons que les animaux de compagnie ne soient pas autorisés au Petit Madeleine, à l'exception des animaux d'assistance certifiés.
+
+  - question:
+      en: How do I get to the hotel from Nice Côte d'Azur Airport?
+      fr: Comment rejoindre l'hôtel depuis l'aéroport de Nice Côte d'Azur ?
+    answer:
+      en: Take tram line T2 from the airport to Jean Médecin, then line T1 to Opéra-Vieille Ville (20 minutes total, €1.70). A taxi takes about 15 minutes and costs €30–40. We can arrange a private transfer on request.
+      fr: Prenez le tram ligne T2 depuis l'aéroport jusqu'à Jean Médecin, puis la ligne T1 jusqu'à Opéra-Vieille Ville (20 minutes au total, 1,70 €). Un taxi prend environ 15 minutes et coûte 30 à 40 €. Nous pouvons organiser un transfert privé sur demande.
+
+  - question:
+      en: Is there a minimum stay?
+      fr: Y a-t-il une durée minimale de séjour ?
+    answer:
+      en: The Flexible and Non-Refundable rates have no minimum stay. The Bed & Breakfast rate requires a minimum of 2 nights.
+      fr: Les tarifs Flexible et Non Remboursable n'ont pas de durée minimale. Le tarif Chambre & Petit-Déjeuner requiert un minimum de 2 nuits.
+
+nearby:
+  - category: beach
+    name: Plage Beau Rivage
+    distance_meters: 350
+    notes:
+      en: Nice's best-known private beach, with sunbeds available.
+      fr: La plage privée la plus connue de Nice, avec transats disponibles.
+
+  - category: attraction
+    name: Promenade des Anglais
+    distance_meters: 200
+
+  - category: restaurant
+    name: Chez René Socca
+    distance_meters: 400
+    notes:
+      en: Legendary socca (chickpea pancake) in the old town. Cash only, expect a queue.
+      fr: Socca (galette de pois chiches) légendaire dans le vieux Nice. Espèces uniquement.
+
+  - category: attraction
+    name: Cours Saleya Market
+    distance_meters: 600
+    notes:
+      en: Flower and produce market Tuesday–Sunday mornings.
+      fr: Marché aux fleurs et aux fruits du mardi au dimanche matin.
+
+  - category: museum
+    name: Musée Matisse
+    distance_meters: 3500
+
+  - category: train_station
+    name: Nice-Ville
+    distance_meters: 900
+
+  - category: airport
+    name: Nice Côte d'Azur Airport
+    distance_meters: 6000
+
+getting_here:
+  by_plane:
+    en: Nice Côte d'Azur Airport is 6 km away. Take tram T2 to Jean Médecin, then T1 to Opéra-Vieille Ville (~20 min, €1.70). Taxi ~15 min, ~€35.
+    fr: L'aéroport de Nice Côte d'Azur est à 6 km. Prenez le tram T2 jusqu'à Jean Médecin, puis T1 jusqu'à Opéra-Vieille Ville (~20 min, 1,70 €). Taxi ~15 min, ~35 €.
+  by_train:
+    en: Nice-Ville station is a 15-minute walk or 5-minute taxi from the hotel. Trains from Paris (5.5h TGV), Lyon (4h), and Marseille (2.5h).
+    fr: La gare de Nice-Ville est à 15 minutes à pied ou 5 minutes en taxi. Trains depuis Paris (5h30 TGV), Lyon (4h) et Marseille (2h30).
+  by_car:
+    en: From the A8 motorway, exit at Nice-Est and follow signs for the Promenade des Anglais. Free street parking on Rue de la Liberté.
+    fr: Depuis l'autoroute A8, sortez à Nice-Est et suivez les panneaux vers la Promenade des Anglais. Stationnement gratuit en voirie rue de la Liberté.

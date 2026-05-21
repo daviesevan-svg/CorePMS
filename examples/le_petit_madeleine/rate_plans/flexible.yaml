@@ -1,0 +1,64 @@
+schema_version: "1.0"
+id: flexible
+name:
+  en: Flexible Rate
+  fr: Tarif Flexible
+description:
+  en: Our standard rate with full flexibility. Free cancellation until 48 hours before arrival.
+  fr: Notre tarif standard avec toute la flexibilité. Annulation gratuite jusqu'à 48 heures avant l'arrivée.
+
+meal_plan: room_only
+
+applies_to:
+  - classic-room
+  - deluxe-sea-view
+  - junior-suite
+
+pricing:
+  # Base nightly rates in EUR. Seasonal and day-of-week modifiers stack
+  # multiplicatively: final = base × seasonal × dow
+  room_rates:
+    classic-room: 120
+    deluxe-sea-view: 195
+    junior-suite: 320
+
+  seasonal_modifiers:
+    # Ranges are evaluated in order; first match wins.
+    # Do not leave gaps — unmatched dates use the base rate.
+    - label: Summer Peak
+      from: "2025-07-01"
+      to: "2025-08-31"
+      adjustment: "+35%"
+
+    - label: Spring Shoulder
+      from: "2025-04-01"
+      to: "2025-06-30"
+      adjustment: "+15%"
+
+    - label: Autumn Shoulder
+      from: "2025-09-01"
+      to: "2025-10-31"
+      adjustment: "+10%"
+
+    - label: Low Season
+      from: "2025-11-01"
+      to: "2026-03-31"
+      adjustment: "-15%"
+
+  dow_modifiers:
+    # Weekend premium applied on top of any seasonal modifier
+    friday: "+10%"
+    saturday: "+15%"
+    sunday: "+5%"
+
+  extra_person_fee: 30
+  child_fee: 15
+  child_fee_max_age: 11
+
+restrictions:
+  min_stay_nights: 1
+  advance_booking_min_days: 0
+  advance_booking_max_days: 365
+
+cancellation:
+  policy_id: flexible-48h

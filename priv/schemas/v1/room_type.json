@@ -1,0 +1,157 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.channex.io/property-content/v1/room_type.json",
+  "title": "Room Type",
+  "description": "A category of rooms sharing the same configuration (e.g. 'Deluxe Sea View Double'). One file per type in room_types/. Physical rooms reference their type in rooms/.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "name",
+    "max_occupancy",
+    "bed_configurations"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^1\\.\\d+$"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*[a-z0-9]$",
+      "description": "Used in rate_plans applies_to references and rooms room_type_id."
+    },
+    "name": { "$ref": "#/$defs/multilingual_text" },
+    "description": { "$ref": "#/$defs/multilingual_text" },
+    "max_occupancy": {
+      "type": "object",
+      "required": ["adults"],
+      "additionalProperties": false,
+      "properties": {
+        "adults":   { "type": "integer", "minimum": 1 },
+        "children": { "type": "integer", "minimum": 0 },
+        "total":    { "type": "integer", "minimum": 1, "description": "Overall cap when adults + children together." }
+      }
+    },
+    "size": {
+      "type": "object",
+      "description": "Room size. Provide sqm, sqft, or both.",
+      "additionalProperties": false,
+      "properties": {
+        "sqm":  { "type": "number", "exclusiveMinimum": 0 },
+        "sqft": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "bed_configurations": {
+      "type": "array",
+      "description": "One or more possible bed setups guests can request. First entry is the default.",
+      "items": {
+        "type": "object",
+        "required": ["beds"],
+        "additionalProperties": false,
+        "properties": {
+          "label": { "$ref": "#/$defs/multilingual_text" },
+          "beds": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["type", "count"],
+              "additionalProperties": false,
+              "properties": {
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "single", "twin", "double", "queen", "king",
+                    "super_king", "sofa_bed", "bunk_bed", "cot"
+                  ]
+                },
+                "count": { "type": "integer", "minimum": 1 }
+              }
+            }
+          }
+        }
+      },
+      "minItems": 1
+    },
+    "views": {
+      "type": "array",
+      "description": "View types available from this room type.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "sea", "ocean", "garden", "pool", "city",
+          "mountain", "courtyard", "street", "partial_sea", "other"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "floor_range": {
+      "type": "object",
+      "description": "Which floors rooms of this type occupy.",
+      "additionalProperties": false,
+      "properties": {
+        "from": { "type": "integer" },
+        "to":   { "type": "integer" }
+      }
+    },
+    "bathroom": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "count": { "type": "integer", "minimum": 1 },
+        "type": {
+          "type": "string",
+          "enum": ["private", "shared", "ensuite"]
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["bathtub", "shower", "jacuzzi", "bidet", "double_sink", "heated_floor"]
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "accessible": {
+      "type": "boolean",
+      "description": "True if rooms of this type are wheelchair accessible."
+    },
+    "amenities": {
+      "type": "array",
+      "description": "Room-type-level amenity codes. Supplements property-level amenities.",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "photos": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/photo" }
+    }
+  },
+  "$defs": {
+    "multilingual_text": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": { "type": "string", "minLength": 1 },
+      "propertyNames": { "pattern": "^[a-z]{2}(-[A-Z]{2})?$" }
+    },
+    "photo": {
+      "type": "object",
+      "required": ["url", "alt", "category"],
+      "additionalProperties": false,
+      "properties": {
+        "url":      { "type": "string", "format": "uri" },
+        "alt":      { "$ref": "#/$defs/multilingual_text" },
+        "caption":  { "$ref": "#/$defs/multilingual_text" },
+        "category": {
+          "type": "string",
+          "enum": ["facade", "lobby", "room", "bathroom", "view", "pool", "gym", "restaurant", "bar", "garden", "meeting_room", "spa", "parking", "other"]
+        },
+        "order": { "type": "integer", "minimum": 1 },
+        "hero":  { "type": "boolean" }
+      }
+    }
+  }
+}

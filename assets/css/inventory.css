@@ -1,0 +1,170 @@
+/* ── Inventory page ──────────────────────────────────────────── */
+
+/* Sidebar: room-type sections */
+.room-type { border-bottom: 1px solid var(--line-strong); }
+.room-type:last-child { border-bottom: 0; }
+.rt-head {
+  display: flex; align-items: center; gap: 8px; height: 46px; padding: 0 16px;
+  background: var(--bg-sunk); border-bottom: 1px solid var(--line);
+  cursor: pointer; user-select: none;
+}
+.rt-head .caret { width: 11px; height: 11px; color: var(--ink-3); transition: transform .15s; flex-shrink: 0; }
+.room-type[data-collapsed="1"] .caret { transform: rotate(-90deg); }
+.rt-head .name {
+  font-size: 13px; font-weight: 600; color: var(--ink);
+  flex: 1; min-width: 0;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.rt-head .total {
+  font-size: 11px; font-weight: 500; color: var(--ink-3);
+  font-family: 'Geist Mono', monospace;
+}
+
+/* Per-metric label row in the sidebar */
+.rt-metric {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  height: var(--metric-h); padding: 0 16px 0 28px;
+  border-bottom: 1px solid var(--line);
+}
+.rt-metric:last-child { border-bottom: 0; }
+.rt-metric .label {
+  font-size: 13px; color: var(--ink-2); font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.rt-metric.primary .label { color: var(--ink); font-weight: 600; }
+.rt-metric .sub {
+  font-size: 10px; color: var(--ink-4); font-weight: 600;
+  letter-spacing: 0.08em; text-transform: uppercase;
+  flex-shrink: 0;
+}
+.room-type[data-collapsed="1"] .rt-metric { display: none; }
+
+/* Date-header inner wrapper for inventory page */
+.date-header-inner {
+  display: grid; grid-auto-flow: column; grid-auto-columns: var(--cell-w);
+}
+
+/* Thin neutral separator that aligns with the sidebar room-type header */
+.rt-separator {
+  height: 46px;
+  background: var(--bg-sunk);
+  border-bottom: 1px solid var(--line);
+}
+.room-type-grid[data-collapsed="1"] .rt-separator + .metric-row,
+.room-type-grid[data-collapsed="1"] .metric-row { display: none; }
+
+.metric-row {
+  display: grid; grid-auto-flow: column; grid-auto-columns: var(--cell-w);
+  height: var(--metric-h); border-bottom: 1px solid var(--line);
+}
+.metric-row[data-last="1"] { border-bottom: 1px solid var(--line-strong); }
+
+/* ── Inventory cells ─────────────────────────────────────────── */
+.cell {
+  border-right: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: center;
+  position: relative; cursor: pointer;
+  transition: background-color .12s;
+  background: var(--bg-elev);
+}
+.cell[data-weekend="1"] { background: oklch(99% 0.002 250); }     /* almost imperceptible */
+.cell:hover { background: var(--accent-soft); }
+.cell-value {
+  font-size: 13px; font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  font-family: 'Geist Mono', monospace; color: var(--ink);
+  pointer-events: none;
+}
+
+/* Availability — read-only, just the free-room count */
+.cell.avail { cursor: default; }
+.cell.avail:hover { background: var(--bg-elev); }
+.cell.avail[data-weekend="1"]:hover { background: oklch(99% 0.002 250); }
+.cell.avail .cell-value { font-size: 15px; font-weight: 600; }
+.cell.avail[data-level="ok"]   { background: transparent; }
+.cell.avail[data-level="low"]  { background: oklch(98% 0.025 80); }   /* softer amber wash */
+.cell.avail[data-level="low"]  .cell-value { color: oklch(46% 0.10 60); }
+.cell.avail[data-level="zero"] { background: var(--unpaid-bg); }
+.cell.avail[data-level="zero"] .cell-value { color: var(--unpaid-ink); font-weight: 700; }
+
+/* Rate — typography reads as a number first; the matching cell is washed red
+   only when its room-type is sold out on that date. */
+.cell.rate .cell-value { color: var(--ink); font-weight: 600; }
+.cell.rate[data-zero="1"]    { background: var(--unpaid-bg); }
+.cell.rate[data-zero="1"] .cell-value { color: var(--unpaid-ink); text-decoration: line-through; opacity: .7; }
+.cell.rate[data-soldout="1"] { background: var(--unpaid-bg); }
+.cell.rate[data-soldout="1"] .cell-value { color: var(--unpaid-ink); }
+
+/* Min stay */
+.cell.minstay .cell-value { color: var(--ink-2); font-size: 12px; }
+.cell.minstay[data-strict="1"] .cell-value { color: oklch(46% 0.10 60); font-weight: 600; }
+
+/* CTA / CTD / Closed booleans */
+.cell.bool { font-family: 'Geist Mono', monospace; }
+.cell.bool .cell-value { color: var(--ink-4); font-size: 14px; }
+.cell.bool[data-on="1"] svg { width: 13px; height: 13px; }
+.cell.closed[data-on="1"]  { background: var(--hold-bg); }
+.cell.closed[data-on="1"] svg { color: var(--ink-2); width: 14px; height: 14px; }
+.cell.cta[data-on="1"] svg { color: oklch(58% 0.12 70); width: 14px; height: 14px; }
+.cell.ctd[data-on="1"] svg { color: oklch(58% 0.12 70); width: 14px; height: 14px; }
+
+/* Bulk-selection visuals — `data-drag-sel` is the live drag preview; the
+   server then re-renders the same cells with `data-selected="1"` after the
+   selection lands. */
+.cell[data-drag-sel="1"],
+.cell[data-selected="1"] {
+  box-shadow: inset 0 0 0 1.5px var(--accent), inset 0 0 0 3px var(--accent-soft);
+  z-index: 1;
+}
+.cell[data-drag-sel="1"] { background: var(--accent-soft); }
+
+/* Cells inside an active selection that are NOT the one being edited are
+   greyed out so the user understands the editor is driving them. The edited
+   cell hosts a `.cell-edit` overlay, so `:has` picks it out cleanly. */
+.cell[data-selected="1"]:not(:has(.cell-edit)) .cell-value {
+  color: var(--ink-4);
+  opacity: 0.7;
+}
+
+/* Inline editor */
+.cell-edit {
+  position: absolute; inset: 2px; border-radius: 5px;
+  background: var(--bg-elev); border: 2px solid var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 5;
+}
+.cell-edit input {
+  width: 100%; height: 100%; border: 0; outline: 0; background: transparent;
+  font: inherit; font-size: 14px; font-weight: 600;
+  font-family: 'Geist Mono', monospace;
+  text-align: center; color: var(--ink); padding: 0;
+}
+
+/* ── Metric filter chips (toolbar) ───────────────────────────── */
+.metric-filter {
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.metric-filter-label {
+  font-size: 11.5px; color: var(--ink-3); font-weight: 500; margin-right: 4px;
+  letter-spacing: 0.02em;
+}
+.metric-chip {
+  appearance: none; display: inline-flex; align-items: center;
+  height: 28px; padding: 0 11px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--bg-elev);
+  font: inherit; font-size: 12px; font-weight: 500; color: var(--ink-2);
+  cursor: pointer;
+}
+.metric-chip:hover { background: var(--bg-sunk); color: var(--ink); }
+.metric-chip[data-active="1"] {
+  background: var(--ink); color: var(--bg-elev); border-color: var(--ink);
+}
+
+.stat-link {
+  appearance: none; border: 0; background: transparent;
+  font: inherit; font-size: 11.5px; color: var(--accent);
+  cursor: pointer; padding: 2px 4px; margin-left: 6px;
+  border-radius: 4px; font-weight: 500;
+}
+.stat-link:hover { background: var(--accent-soft); }
