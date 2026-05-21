@@ -4,12 +4,12 @@ defmodule Hospex.Application do
   @impl true
   def start(_type, _args) do
     children = [
-      # Hospex.Repo,  # re-enable once PostgreSQL is configured locally
+      Hospex.Repo,
       {DNSCluster, query: Application.get_env(:hospex, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Hospex.PubSub},
-      Hospex.Bookings.Store,   # in-memory bookings cache (swap for Repo later)
-      Hospex.Inventory.Store,  # in-memory inventory overrides
-      # {Oban, Application.fetch_env!(:hospex, Oban)},  # requires database
+      Hospex.Bookings.Store,
+      Hospex.Inventory.Store,
+      # {Oban, Application.fetch_env!(:hospex, Oban)},  # add `mix ecto.gen.migration add_oban` + Oban.Migrations.up() to enable
       HospexWeb.Endpoint
     ]
 

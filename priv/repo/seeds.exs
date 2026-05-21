@@ -5,6 +5,8 @@
 #     mix run priv/repo/seeds.exs
 #
 
+{:ok, _} = Application.ensure_all_started(:hospex)
+
 alias Hospex.Repo
 alias Hospex.Bookings.{Booking, Stay}
 alias Hospex.Content.MockCalendarData
