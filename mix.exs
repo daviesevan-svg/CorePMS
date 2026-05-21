@@ -60,7 +60,7 @@ defmodule Hospex.MixProject do
 
       # Dev/test
       {:floki, ">= 0.30.0", only: :test},
-      {:phoenix_live_dashboard, "~> 0.8", only: [:dev]}
+      {:phoenix_live_dashboard, "~> 0.8", only: [:dev, :test]}
     ]
   end
 

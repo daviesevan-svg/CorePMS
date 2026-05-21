@@ -35,3 +35,5 @@ config :hospex, :s3,
 config :logger, level: :debug
 config :phoenix, :stacktrace_depth, 20
 config :phoenix, :plug_init_mode, :runtime
+
+config :hospex, dev_routes: true

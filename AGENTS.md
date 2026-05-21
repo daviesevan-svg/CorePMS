@@ -35,7 +35,11 @@ mix ecto.reset      # drop + create + migrate + seed
 
 ### Prerequisites
 - **Elixir 1.16+** and **Node 18+** on PATH.
-- **PostgreSQL 14+ running on `localhost:5432`** with a superuser that matches `config/dev.exs` (defaults to `postgres`/`postgres`). `mix setup` will hang or fail on `ecto.create` if no Postgres is reachable. Quick options on macOS: install [Postgres.app](https://postgresapp.com), or `docker run -d --name hospex-pg -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:16`.
+- **PostgreSQL 14+ running on `localhost:5432`** with a superuser that matches `config/dev.exs` (defaults to `postgres`/`postgres`). `mix setup` will hang or fail on `ecto.create` if no Postgres is reachable. Quick options on macOS: `brew install postgresql@16 && brew services start postgresql@16` (then `createuser -s postgres` if needed), or install [Postgres.app](https://postgresapp.com), or `docker run -d --name hospex-pg -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:16`.
+
+### Known follow-ups
+- `lib/hospex_web/live/bookings_live.ex` still emits a `handle_event/3` clause-grouping warning. Same fix pattern as the (now-completed) calendar refactor.
+- Production builds (`MIX_ENV=prod`) currently won't compile the router because `phoenix_live_dashboard` is `only: [:dev, :test]` but the router's `if Application.compile_env(:hospex, :dev_routes) do ... import Phoenix.LiveDashboard.Router` block isn't dead-code-eliminated by the Elixir compiler. Options: gate with `if Mix.env() in [:dev, :test]` (compiler can DCE), or move the dep to all envs.
 
 ## Conventions
 - Money formatted via `format_money/1`; dates via `Calendar.strftime` or local helpers (`format_date_range`, `dow_abbr`, `month_abbr`).
