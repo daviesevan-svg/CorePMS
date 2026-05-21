@@ -15,25 +15,47 @@ defmodule Hospex.Bookings do
   are still persisted on the booking row.
   """
 
-  alias Hospex.Bookings.Store
+  alias Hospex.Repo
+  alias Hospex.Bookings.{Store, BookingEvent, BookingTransaction}
   alias Hospex.Content.MockCalendarData
 
   @pubsub_topic "bookings"
 
-  # ── Event log (stubbed) ──────────────────────────────────────
+  # ── Event log ────────────────────────────────────────────────
 
   @doc """
-  Audit-log entry point. Stubbed: events aren't persisted in this scope,
-  so this is a no-op. Callers keep using it; the History tab will read
-  an empty list until a follow-up adds an `events` table.
+  Audit-log entry point. Inserts a `booking_events` row. `kind` is the
+  atom kind; opts may include `:by` (defaults to "system") and `:summary`
+  (defaults to a humanized kind). Returns `:ok` (or `:ok` if the booking
+  has been deleted concurrently — append is best-effort).
   """
-  def append_event(_booking_id, kind, _opts \\ []) when is_atom(kind), do: :ok
+  def append_event(booking_id, kind, opts \\ []) when is_atom(kind) do
+    attrs = %{
+      booking_id: booking_id,
+      kind:       Atom.to_string(kind),
+      at:         NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second),
+      by:         Keyword.get(opts, :by, "system"),
+      summary:    Keyword.get(opts, :summary, humanize_kind(kind))
+    }
+
+    case %BookingEvent{} |> BookingEvent.changeset(attrs) |> Repo.insert() do
+      {:ok, _} -> :ok
+      {:error, _} -> :ok
+    end
+  end
+
+  defp humanize_kind(kind), do: kind |> Atom.to_string() |> String.replace("_", " ") |> String.capitalize()
 
   @doc """
-  Set or update the booking's internal staff notes. Stubbed: notes
-  aren't persisted in this scope, so this is a no-op.
+  Set or update the booking's internal staff notes. Writes the column
+  and appends a `:notes_updated` event.
   """
-  def update_notes(_booking_id, _notes), do: :ok
+  def update_notes(booking_id, notes) do
+    Store.update_booking(booking_id, fn b -> Map.put(b, :notes, notes) end)
+    append_event(booking_id, :notes_updated, summary: "Notes updated")
+    broadcast({:booking_updated, booking_id})
+    :ok
+  end
 
   # ── Subscription / broadcast ─────────────────────────────────
 
@@ -231,19 +253,40 @@ defmodule Hospex.Bookings do
   Each stay denormalizes `paid` / `total` for the calendar pill, so we
   mirror onto every stay.
   """
-  def add_transaction(booking_id, %{kind: kind, amount: amount} = _attrs)
+  def add_transaction(booking_id, %{kind: kind, amount: amount} = attrs)
       when kind in [:payment, :refund, :charge] and is_integer(amount) and amount > 0 do
-    # Transaction history is stubbed; only the side-effect on paid/total
-    # is persisted on the booking row.
-    Store.update_booking(booking_id, fn b ->
-      apply_txn_to_totals(b, kind, amount)
-    end)
+    method = Map.get(attrs, :method)
+    note   = Map.get(attrs, :note) || ""
+    now    = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
 
+    {:ok, _} =
+      Repo.transaction(fn ->
+        Store.update_booking(booking_id, fn b ->
+          apply_txn_to_totals(b, kind, amount)
+        end)
+
+        %BookingTransaction{}
+        |> BookingTransaction.changeset(%{
+          booking_id: booking_id,
+          kind:       Atom.to_string(kind),
+          amount:     amount,
+          method:     method,
+          note:       note,
+          created_at: now
+        })
+        |> Repo.insert!()
+      end)
+
+    append_event(booking_id, kind, summary: txn_summary(kind, amount, method))
     broadcast({:booking_updated, booking_id})
     :ok
   end
 
   def add_transaction(_id, _attrs), do: {:error, :invalid}
+
+  defp txn_summary(:payment, amt, method), do: "Payment of €#{amt}" <> if(method, do: " (#{method})", else: "")
+  defp txn_summary(:refund,  amt, method), do: "Refund of €#{amt}" <> if(method, do: " (#{method})", else: "")
+  defp txn_summary(:charge,  amt, _method), do: "Charge of €#{amt}"
 
   defp apply_txn_to_totals(b, :payment, amt) do
     new_paid = b.paid + amt

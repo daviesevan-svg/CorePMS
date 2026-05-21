@@ -6,7 +6,7 @@ defmodule Hospex.Bookings.Booking do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias Hospex.Bookings.Stay
+  alias Hospex.Bookings.{Stay, BookingEvent, BookingTransaction}
 
   schema "bookings" do
     field :ref,             :string
@@ -32,7 +32,11 @@ defmodule Hospex.Bookings.Booking do
     field :block_release,   :naive_datetime
     field :block_by,        :string
 
+    field :notes,           :string
+
     has_many :stays, Stay, on_replace: :delete
+    has_many :events, BookingEvent, on_replace: :delete
+    has_many :transactions, BookingTransaction, on_replace: :delete
 
     timestamps()
   end
@@ -40,7 +44,7 @@ defmodule Hospex.Bookings.Booking do
   @castable ~w(ref lead_guest src status total paid check_in check_out
                ota_ref payment_collect email phone country requests
                rate_night cleaning_fee tax_rate
-               block_reason block_release block_by)a
+               block_reason block_release block_by notes)a
 
   def changeset(booking, attrs) do
     booking

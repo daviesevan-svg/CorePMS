@@ -8,7 +8,7 @@
 {:ok, _} = Application.ensure_all_started(:hospex)
 
 alias Hospex.Repo
-alias Hospex.Bookings.{Booking, Stay}
+alias Hospex.Bookings.{Booking, BookingEvent}
 alias Hospex.Content.MockCalendarData
 
 if Repo.aggregate(Booking, :count, :id) > 0 do
@@ -49,8 +49,27 @@ else
         stays:           stay_attrs
       }
 
-      %Booking{}
-      |> Booking.changeset(attrs)
+      inserted =
+        %Booking{}
+        |> Booking.changeset(attrs)
+        |> Repo.insert!()
+
+      # Stamp a :booking_created event ~14 days before check-in so the
+      # History tab isn't empty after ecto.reset. Mirrors the old
+      # in-memory Store.booking_created_at/2 behavior.
+      days_ahead = Date.diff(b.check_in, today)
+      offset     = -max(0, 14 - days_ahead) - 7
+      created_on = Date.add(b.check_in, offset)
+      created_at = NaiveDateTime.new!(created_on, ~T[10:00:00])
+
+      %BookingEvent{}
+      |> BookingEvent.changeset(%{
+        booking_id: inserted.id,
+        kind:       "booking_created",
+        at:         created_at,
+        by:         "system",
+        summary:    "Booking created via #{b.src}"
+      })
       |> Repo.insert!()
     end)
   end)

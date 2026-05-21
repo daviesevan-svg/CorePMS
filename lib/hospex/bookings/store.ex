@@ -16,19 +16,27 @@ defmodule Hospex.Bookings.Store do
       / `status` are still persisted on the booking row.
   """
 
+  import Ecto.Query, only: [from: 2]
+
   alias Hospex.Repo
-  alias Hospex.Bookings.{Booking, Stay}
+  alias Hospex.Bookings.{Booking, Stay, BookingEvent, BookingTransaction}
 
   @known_statuses ~w(paid partial unpaid in hold cancelled ota_collect)a
   @known_srcs     ~w(direct BC AB EX DR ota)a
   @known_collects ~w(property channel ota)a
+  @known_event_kinds ~w(booking_created status_changed payment_recorded
+                        notes_updated block_created block_release_changed
+                        stay_edited booking_edited stay_rescheduled
+                        stay_moved room_added booking_cancelled
+                        payment refund charge)a
+  @known_txn_kinds   ~w(payment refund charge)a
 
   # ── Reads ────────────────────────────────────────────────
 
   def list_bookings do
     Booking
     |> Repo.all()
-    |> Repo.preload(:stays)
+    |> Repo.preload(preloads())
     |> Enum.map(&to_map/1)
     |> Enum.sort_by(& &1.check_in, Date)
   end
@@ -36,8 +44,16 @@ defmodule Hospex.Bookings.Store do
   def get_booking(id) do
     case Repo.get(Booking, id) do
       nil -> nil
-      b   -> b |> Repo.preload(:stays) |> to_map()
+      b   -> b |> Repo.preload(preloads()) |> to_map()
     end
+  end
+
+  defp preloads do
+    [
+      :stays,
+      events: from(e in BookingEvent, order_by: [desc: e.at, desc: e.id]),
+      transactions: from(t in BookingTransaction, order_by: [desc: t.created_at, desc: t.id])
+    ]
   end
 
   # ── Writes ───────────────────────────────────────────────
@@ -77,7 +93,7 @@ defmodule Hospex.Bookings.Store do
       |> Repo.preload(:stays)
       |> Booking.changeset(attrs)
       |> Repo.update!()
-      |> Repo.preload(:stays, force: true)
+      |> Repo.preload(preloads(), force: true)
       |> to_map()
     end)
     |> case do
@@ -103,7 +119,7 @@ defmodule Hospex.Bookings.Store do
       case Repo.get(Booking, booking_id) do
         nil -> nil
         b ->
-          loaded = b |> Repo.preload(:stays) |> to_map()
+          loaded = b |> Repo.preload(preloads()) |> to_map()
           updated = update_fn.(loaded)
           attrs = booking_attrs(updated)
 
@@ -112,7 +128,14 @@ defmodule Hospex.Bookings.Store do
           |> Booking.changeset(attrs)
           |> Repo.update!()
 
-          updated
+          # Re-fetch with full preloads so the caller sees fresh events
+          # / transactions / notes alongside the transform's changes.
+          b.id
+          |> get_booking()
+          |> case do
+            nil -> updated
+            fresh -> fresh
+          end
       end
     end)
     |> case do
@@ -147,12 +170,38 @@ defmodule Hospex.Bookings.Store do
       block_reason:    b.block_reason,
       block_release:   b.block_release,
       block_by:        b.block_by,
-      # Stubbed — see moduledoc.
-      events:          [],
-      transactions:    [],
-      notes:           nil
+      events:          events_list(b),
+      transactions:    transactions_list(b),
+      notes:           b.notes
     }
   end
+
+  defp events_list(%Booking{events: events}) when is_list(events) do
+    Enum.map(events, fn e ->
+      %{
+        id:      e.id,
+        kind:    safe_atom(e.kind, @known_event_kinds, :booking_edited),
+        at:      e.at,
+        by:      e.by,
+        summary: e.summary
+      }
+    end)
+  end
+  defp events_list(_), do: []
+
+  defp transactions_list(%Booking{transactions: txns}) when is_list(txns) do
+    Enum.map(txns, fn t ->
+      %{
+        id:         t.id,
+        kind:       safe_atom(t.kind, @known_txn_kinds, :payment),
+        amount:     t.amount,
+        method:     t.method,
+        note:       t.note,
+        created_at: t.created_at
+      }
+    end)
+  end
+  defp transactions_list(_), do: []
 
   defp stay_to_map(%Stay{} = s, %Booking{} = b) do
     room_count = length(b.stays)
@@ -197,6 +246,7 @@ defmodule Hospex.Bookings.Store do
       block_reason:    Map.get(m, :block_reason),
       block_release:   Map.get(m, :block_release),
       block_by:        Map.get(m, :block_by),
+      notes:           Map.get(m, :notes),
       stays:           Enum.map(Map.get(m, :stays, []), &stay_attrs/1)
     }
   end
