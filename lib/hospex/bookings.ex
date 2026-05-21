@@ -17,9 +17,10 @@ defmodule Hospex.Bookings do
 
   alias Hospex.Repo
   alias Hospex.Bookings.{Store, BookingEvent, BookingTransaction}
-  alias Hospex.Content.MockCalendarData
+  alias Hospex.Content.Property
 
   @pubsub_topic "bookings"
+  @content_topic "content"
 
   # ── Event log ────────────────────────────────────────────────
 
@@ -63,6 +64,15 @@ defmodule Hospex.Bookings do
     Phoenix.PubSub.subscribe(Hospex.PubSub, @pubsub_topic)
   end
 
+  @doc """
+  Subscribe to property-content changes (YAML edits made from the
+  settings pages). The calendar mounts both `subscribe/0` and this so
+  edits in /settings/* show up live.
+  """
+  def subscribe_content do
+    Phoenix.PubSub.subscribe(Hospex.PubSub, @content_topic)
+  end
+
   defp broadcast(event) do
     Phoenix.PubSub.broadcast(Hospex.PubSub, @pubsub_topic, {:bookings_changed, event})
   end
@@ -75,7 +85,7 @@ defmodule Hospex.Bookings do
   unchanged.
   """
   def load_calendar do
-    room_groups = MockCalendarData.room_groups()
+    room_groups = Property.room_groups()
     bookings    = Store.list_bookings()
     stays       = Enum.flat_map(bookings, & &1.stays)
     {room_groups, bookings, stays}

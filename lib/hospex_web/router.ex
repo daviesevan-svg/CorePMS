@@ -22,6 +22,11 @@ defmodule HospexWeb.Router do
     live "/calendar", CalendarLive, :index
     live "/bookings", BookingsLive, :index
     live "/inventory", InventoryLive, :index
+
+    get  "/settings", Redirector, :settings
+    live "/settings/property",   Settings.PropertyLive,  :index
+    live "/settings/room-types", Settings.RoomTypesLive, :index
+    live "/settings/rooms",      Settings.RoomsLive,     :index
   end
 
   # API endpoints for PMS partners to push content updates

@@ -16,7 +16,10 @@ defmodule HospexWeb.CalendarLive do
     today  = Date.utc_today()
     anchor = Date.add(today, -3)
 
-    if connected?(socket), do: Bookings.subscribe()
+    if connected?(socket) do
+      Bookings.subscribe()
+      Bookings.subscribe_content()
+    end
     {room_groups, bookings, stays} = Bookings.load_calendar()
     all_rooms = Enum.flat_map(room_groups, & &1.rooms)
 
@@ -1572,6 +1575,19 @@ defmodule HospexWeb.CalendarLive do
   # ── PubSub ────────────────────────────────────────────────────
 
   @impl true
+  def handle_info({:content_changed, _kind, _id}, socket) do
+    # Property YAML edited from /settings/* — re-derive room_groups
+    # (and re-load stays for symmetry; cheap).
+    {room_groups, bookings, stays} = Bookings.load_calendar()
+    all_rooms = Enum.flat_map(room_groups, & &1.rooms)
+
+    {:noreply,
+     socket
+     |> assign(room_groups: room_groups, all_bookings: bookings,
+               all_stays: stays, all_rooms: all_rooms)
+     |> derive_view()}
+  end
+
   def handle_info({:bookings_changed, _event}, socket) do
     # Another process inserted/updated a booking — refresh local view.
     # If the user has the edit drawer open, refresh its data too.

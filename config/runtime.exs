@@ -1,5 +1,9 @@
 import Config
 
+if dir = System.get_env("PROPERTY_DIR") do
+  config :hospex, :property_dir, dir
+end
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||

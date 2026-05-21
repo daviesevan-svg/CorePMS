@@ -4,6 +4,10 @@ config :hospex,
   ecto_repos: [Hospex.Repo],
   generators: [timestamp_type: :utc_datetime]
 
+# Path to the single property's YAML content directory. Resolved relative
+# to `File.cwd!()` if relative. Overridable in runtime.exs via PROPERTY_DIR.
+config :hospex, :property_dir, "examples/le_petit_madeleine"
+
 config :hospex, HospexWeb.Endpoint,
   url: [host: "localhost"],
   adapter: Bandit.PhoenixAdapter,
