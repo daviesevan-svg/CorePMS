@@ -9,7 +9,7 @@ defmodule Hospex.Application do
       {Phoenix.PubSub, name: Hospex.PubSub},
       Hospex.Bookings.Store,
       Hospex.Inventory.Store,
-      # {Oban, Application.fetch_env!(:hospex, Oban)},  # add `mix ecto.gen.migration add_oban` + Oban.Migrations.up() to enable
+      {Oban, Application.fetch_env!(:hospex, Oban)},
       HospexWeb.Endpoint
     ]
 
