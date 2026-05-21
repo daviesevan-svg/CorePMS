@@ -7,7 +7,7 @@ defmodule HospexWeb.Settings.RoomTypesLive do
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: Property.subscribe()
-    {:ok, refresh(socket) |> assign(editing: nil, errors: [], flash_msg: nil, new?: false)}
+    {:ok, refresh(socket) |> assign(editing: nil, errors: [], flash_msg: nil, new?: false, unsaved_count: 0)}
   end
 
   @impl true
@@ -36,6 +36,14 @@ defmodule HospexWeb.Settings.RoomTypesLive do
 
   def handle_event("cancel", _, socket) do
     {:noreply, assign(socket, editing: nil, errors: [], flash_msg: nil)}
+  end
+
+  def handle_event("discard", _, socket) do
+    {:noreply, assign(socket, editing: nil, errors: [], flash_msg: nil, unsaved_count: 0)}
+  end
+
+  def handle_event("form_change", _params, socket) do
+    {:noreply, assign(socket, unsaved_count: 1)}
   end
 
   def handle_event("delete", %{"id" => id}, socket) do
@@ -76,7 +84,7 @@ defmodule HospexWeb.Settings.RoomTypesLive do
 
       case Property.save_room_type(patched) do
         {:ok, _} ->
-          {:noreply, refresh(socket) |> assign(editing: nil, errors: [], flash_msg: "Saved #{id}")}
+          {:noreply, refresh(socket) |> assign(editing: nil, errors: [], flash_msg: "Saved #{id}", unsaved_count: 0)}
 
         {:error, errs} when is_list(errs) ->
           {:noreply, assign(socket, editing: patched, errors: errs, flash_msg: nil, new?: new?)}
@@ -129,84 +137,141 @@ defmodule HospexWeb.Settings.RoomTypesLive do
   end
   defp to_num(n), do: n
 
+  defp rail_items(types) do
+    type_items = Enum.map(types, fn t ->
+      id = Map.get(t, "id")
+      label = get_in(t, ["name", "en"]) || id
+      {"type-#{id}", label}
+    end)
+    type_items ++ [{"new-type", "+ New Type"}]
+  end
+
+  defp subnav_items(types) do
+    Enum.map(types, fn t ->
+      id = Map.get(t, "id")
+      label = get_in(t, ["name", "en"]) || id
+      {"type-#{id}", label}
+    end)
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
-    <Shared.chrome active={:room_types}>
-      <div class="settings-inner">
-        <div class="settings-head">
-          <div>
-            <h1 class="settings-title">Room types</h1>
-            <p class="settings-sub">Define the categories of rooms you sell — name, occupancy, size.</p>
-          </div>
-          <button type="button" phx-click="new" class="settings-btn primary">New room type</button>
+    <Shared.chrome
+      active={:room_types}
+      rail_items={rail_items(@types)}
+      crumbs={["Settings", "Room Types"]}
+      page_title="Room Types"
+      page_sub={"#{length(@types)} room types defined — categories of rooms you sell with shared occupancy, beds, and amenities."}
+      status={if @editing, do: "Editing", else: nil}
+      subnav={subnav_items(@types)}
+      unsaved_count={@unsaved_count}
+      form_id="room-type-form">
+
+      <Shared.error_banner errors={@errors} />
+
+      <%= if @editing do %>
+        <form id="room-type-form" phx-submit="save" phx-change="form_change">
+          <Shared.section_card num="•" title={if @new?, do: "New Room Type", else: "Edit: " <> (get_in(@editing, ["name", "en"]) || Map.get(@editing, "id") || "")}
+              desc="Set the basics. Bed configuration and amenities are preserved on save but not yet editable here.">
+            <:aside>
+              <%= unless @new? do %>
+                <button type="button" class="sect-btn danger"
+                        phx-click="delete" phx-value-id={Map.get(@editing, "id")}
+                        data-confirm={"Delete #{Map.get(@editing, "id")}?"}
+                        disabled={Map.get(@room_counts, Map.get(@editing, "id"), 0) > 0}>
+                  Delete
+                </button>
+              <% end %>
+              <button type="button" class="sect-btn" phx-click="cancel">Cancel</button>
+            </:aside>
+
+            <div class="field span-all">
+              <label class="field-label" for="name_en">Name <span class="req">*</span></label>
+              <Shared.lang_tabs active="en" />
+              <input id="name_en" type="text" name="name_en" class="input"
+                     value={get_in(@editing, ["name", "en"]) || ""} required />
+            </div>
+
+            <Shared.textarea label="Description" name="description_en"
+              value={get_in(@editing, ["description", "en"])} max={300} />
+
+            <Shared.field_grid cols={2}>
+              <Shared.field label="Max adults" name="adults" type="number" required
+                value={get_in(@editing, ["max_occupancy", "adults"])} {%{min: "1"}} />
+              <Shared.field label="Max children" name="children" type="number"
+                value={get_in(@editing, ["max_occupancy", "children"])} {%{min: "0"}} />
+            </Shared.field_grid>
+
+            <Shared.field_grid cols={3}>
+              <Shared.field label="Max total" name="total" type="number"
+                value={get_in(@editing, ["max_occupancy", "total"])} {%{min: "1"}} />
+              <Shared.field label="Size (sqm)" name="sqm" type="number"
+                value={get_in(@editing, ["size", "sqm"])} {%{step: "0.1", min: "0"}} />
+              <div class="field">
+                <label class="field-label">Floor pref.</label>
+                <input type="text" class="input" readonly value="—" />
+              </div>
+            </Shared.field_grid>
+
+            <Shared.banner>
+              <b>Beds & amenities</b> aren't editable in the UI yet — these fields are preserved as-is on save. Edit YAML directly to change them.
+            </Shared.banner>
+          </Shared.section_card>
+        </form>
+      <% else %>
+        <div class="toolbar-right">
+          <button type="button" class="sect-btn" phx-click="new">+ New Room Type</button>
         </div>
 
-        <Shared.error_banner errors={@errors} />
+        <%= for t <- @types do %>
+          <Shared.section_card id={"type-#{Map.get(t, "id")}"} num="●"
+              title={get_in(t, ["name", "en"]) || Map.get(t, "id")}
+              desc={get_in(t, ["description", "en"])}>
+            <:aside>
+              <span class="set-page-status">
+                <span class="dot"></span>
+                <%= Map.get(@room_counts, Map.get(t, "id"), 0) %> rooms
+              </span>
+              <button type="button" class="sect-btn"
+                      phx-click="edit" phx-value-id={Map.get(t, "id")}>Edit</button>
+            </:aside>
 
-        <%= if @editing do %>
-          <form phx-submit="save">
-            <Shared.section title={if @new?, do: "New room type", else: "Edit room type"}>
-              <Shared.field label="Name (English)" name="name_en"
-                value={get_in(@editing, ["name", "en"])} required span={2} />
-              <%= unless @new? do %>
-                <Shared.field_static label="ID" span={2}>
-                  <code><%= Map.get(@editing, "id") %></code>
-                </Shared.field_static>
-              <% end %>
-              <Shared.textarea label="Description (English)" name="description_en"
-                value={get_in(@editing, ["description", "en"])} span={2} />
-              <Shared.field label="Max adults" name="adults" type="number" min="1"
-                value={get_in(@editing, ["max_occupancy", "adults"])} required narrow />
-              <Shared.field label="Max children" name="children" type="number" min="0"
-                value={get_in(@editing, ["max_occupancy", "children"])} narrow />
-              <Shared.field label="Max total" name="total" type="number" min="1"
-                value={get_in(@editing, ["max_occupancy", "total"])} narrow />
-              <Shared.field label="Size (sqm)" name="sqm" type="number" step="0.1" min="0"
-                value={get_in(@editing, ["size", "sqm"])} narrow />
-            </Shared.section>
-
-            <Shared.actions_bar>
-              <button type="button" phx-click="cancel" class="settings-btn">Cancel</button>
-              <button type="submit" class="settings-btn primary">Save</button>
-            </Shared.actions_bar>
-          </form>
-        <% else %>
-          <div class="settings-list" data-cols="types">
-            <div class="settings-list-head">
-              <div>Name</div>
-              <div>Max occupancy</div>
-              <div>Rooms</div>
-              <div></div>
-            </div>
-            <%= for t <- @types do %>
-              <div class="settings-list-row">
-                <div>
-                  <div class="settings-list-name"><%= get_in(t, ["name", "en"]) %></div>
-                  <div class="settings-list-id"><%= Map.get(t, "id") %></div>
-                </div>
-                <div><%= get_in(t, ["max_occupancy", "total"]) || get_in(t, ["max_occupancy", "adults"]) %></div>
-                <div><%= Map.get(@room_counts, Map.get(t, "id"), 0) %></div>
-                <div class="settings-list-actions">
-                  <button type="button" phx-click="edit" phx-value-id={Map.get(t, "id")}
-                          class="settings-btn">Edit</button>
-                  <%= if Map.get(@room_counts, Map.get(t, "id"), 0) == 0 do %>
-                    <button type="button" phx-click="delete" phx-value-id={Map.get(t, "id")}
-                            data-confirm={"Delete #{Map.get(t, "id")}?"}
-                            class="settings-btn danger">Delete</button>
-                  <% else %>
-                    <button type="button" disabled title="Has rooms"
-                            class="settings-btn danger is-disabled">Delete</button>
-                  <% end %>
-                </div>
+            <Shared.field_grid cols={2}>
+              <div class="field">
+                <label class="field-label">Max adults</label>
+                <input type="text" class="input mono" readonly value={get_in(t, ["max_occupancy", "adults"]) || "—"} />
               </div>
-            <% end %>
-            <%= if @types == [] do %>
-              <div class="settings-list-empty">No room types yet.</div>
-            <% end %>
-          </div>
+              <div class="field">
+                <label class="field-label">Max children</label>
+                <input type="text" class="input mono" readonly value={get_in(t, ["max_occupancy", "children"]) || "—"} />
+              </div>
+            </Shared.field_grid>
+
+            <Shared.field_grid cols={3}>
+              <div class="field">
+                <label class="field-label">Max total</label>
+                <input type="text" class="input mono" readonly value={get_in(t, ["max_occupancy", "total"]) || "—"} />
+              </div>
+              <div class="field">
+                <label class="field-label">Size (sqm)</label>
+                <input type="text" class="input mono" readonly value={get_in(t, ["size", "sqm"]) || "—"} />
+              </div>
+              <div class="field">
+                <label class="field-label">ID</label>
+                <input type="text" class="input mono" readonly value={Map.get(t, "id")} />
+              </div>
+            </Shared.field_grid>
+          </Shared.section_card>
         <% end %>
-      </div>
+
+        <%= if @types == [] do %>
+          <Shared.banner>
+            No room types yet. Click <b>+ New Room Type</b> to add the first one.
+          </Shared.banner>
+        <% end %>
+      <% end %>
+
       <Shared.saved_flash message={@flash_msg} />
     </Shared.chrome>
     """
