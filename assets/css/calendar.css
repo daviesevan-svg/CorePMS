@@ -416,9 +416,11 @@ button { font-family: inherit; color: inherit; }
 }
 
 /* After drag release, before user confirms: pill sits at the proposed
-   position with a dashed accent outline so the pending state is obvious. */
+   position with a dashed accent outline so the pending state is obvious.
+   z-index only needs to lift it above other pills — kept below the
+   drag-confirm modal (z-index 81) so the modal sits cleanly on top. */
 .booking.pending-confirm {
-  z-index: 90;
+  z-index: 5;
   outline: 2px dashed var(--accent);
   outline-offset: 1px;
   box-shadow: 0 6px 16px rgba(16,24,40,0.14);
