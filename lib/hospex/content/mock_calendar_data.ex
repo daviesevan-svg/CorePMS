@@ -21,8 +21,8 @@ defmodule Hospex.Content.MockCalendarData do
       %{
         id: "std", name: "Standard Queen", beds: "Queen · 22 m²",
         rooms: [
-          %{id: "r101", num: "101", floor: 1, view: "Garden",    status: :clean},
-          %{id: "r102", num: "102", floor: 1, view: "Garden",    status: :clean},
+          %{id: "room-101", num: "101", floor: 1, view: "Garden",    status: :clean},
+          %{id: "room-102", num: "102", floor: 1, view: "Garden",    status: :clean},
           %{id: "r103", num: "103", floor: 1, view: "Courtyard", status: :dirty},
           %{id: "r104", num: "104", floor: 1, view: "Courtyard", status: :clean},
           %{id: "r105", num: "105", floor: 1, view: "Garden",    status: :clean},
@@ -31,8 +31,8 @@ defmodule Hospex.Content.MockCalendarData do
       %{
         id: "dlx", name: "Deluxe King", beds: "King · 32 m²",
         rooms: [
-          %{id: "r201", num: "201", floor: 2, view: "Sea",  status: :clean},
-          %{id: "r202", num: "202", floor: 2, view: "Sea",  status: :clean},
+          %{id: "room-201", num: "201", floor: 2, view: "Sea",  status: :clean},
+          %{id: "room-202", num: "202", floor: 2, view: "Sea",  status: :clean},
           %{id: "r203", num: "203", floor: 2, view: "City", status: :dirty},
           %{id: "r204", num: "204", floor: 2, view: "City", status: :ooo},
         ]
@@ -40,7 +40,7 @@ defmodule Hospex.Content.MockCalendarData do
       %{
         id: "sui", name: "Junior Suite", beds: "King + sofa · 44 m²",
         rooms: [
-          %{id: "r301", num: "301", floor: 3, view: "Sea", status: :clean},
+          %{id: "room-301", num: "301", floor: 3, view: "Sea", status: :clean},
           %{id: "r302", num: "302", floor: 3, view: "Sea", status: :clean},
           %{id: "r303", num: "303", floor: 3, view: "Sea", status: :clean},
         ]
@@ -123,13 +123,13 @@ defmodule Hospex.Content.MockCalendarData do
   defp raw_bookings do
     [
       # ── Single-room bookings ──────────────────────────────────────
-      single("Anya Petrova",    "r101", -4, 5, 2, 0, :in,      540,  270,  "BC"),
-      single("Marcus Klein",    "r101",  2, 3, 2, 1, :partial, 510,  200,  "DR"),
-      single("Eddie Long",      "r101",  6, 2, 1, 0, :paid,    340,  340,  "EX"),
+      single("Anya Petrova",    "room-101", -4, 5, 2, 0, :in,      540,  270,  "BC"),
+      single("Marcus Klein",    "room-101",  2, 3, 2, 1, :partial, 510,  200,  "DR"),
+      single("Eddie Long",      "room-101",  6, 2, 1, 0, :paid,    340,  340,  "EX"),
 
-      single("Sofia Marchetti", "r102", -2, 4, 2, 0, :paid,    680,  680,  "BC"),
-      single("David Park",      "r102",  3, 2, 2, 0, :ota_collect, 320,  0,    "AB"),
-      single("Maya Adler",      "r102",  7, 3, 1, 0, :partial, 510,  150,  "DR"),
+      single("Sofia Marchetti", "room-102", -2, 4, 2, 0, :paid,    680,  680,  "BC"),
+      single("David Park",      "room-102",  3, 2, 2, 0, :ota_collect, 320,  0,    "AB"),
+      single("Maya Adler",      "room-102",  7, 3, 1, 0, :partial, 510,  150,  "DR"),
 
       single("Lucas Ribeiro",   "r103", -3, 2, 2, 0, :paid,    340,  340,  "BC"),
       single("Henrik Vogel",    "r103",  1, 6, 2, 0, :partial, 1020, 500,  "DR"),
@@ -143,11 +143,11 @@ defmodule Hospex.Content.MockCalendarData do
       single("Noor Hassan",     "r105",  0, 5, 2, 0, :partial, 850,  400,  "BC"),
       single("Petra Linden",    "r105",  6, 3, 2, 0, :unpaid,  510,  0,    "DR"),
 
-      single("James Whitlock",  "r201", -3, 4, 2, 0, :in,      920,  460,  "BC"),
-      single("Felix Ozuna",     "r201",  8, 2, 2, 0, :paid,    460,  460,  "EX"),
+      single("James Whitlock",  "room-201", -3, 4, 2, 0, :in,      920,  460,  "BC"),
+      single("Felix Ozuna",     "room-201",  8, 2, 2, 0, :paid,    460,  460,  "EX"),
 
-      single("Hannah Müller",   "r202", -1, 7, 2, 0, :paid,    1610, 1610, "BC"),
-      single("Robin Cassidy",   "r202",  7, 2, 2, 0, :ota_collect, 460,  0,    "AB"),
+      single("Hannah Müller",   "room-202", -1, 7, 2, 0, :paid,    1610, 1610, "BC"),
+      single("Robin Cassidy",   "room-202",  7, 2, 2, 0, :ota_collect, 460,  0,    "AB"),
 
       single("Léa Beaumont",    "r203", -2, 3, 2, 0, :paid,    690,  690,  "DR"),
       single("Block · Renovation", "r203", 1, 3, 0, 0, :hold,  0,    0,    "—"),
@@ -155,8 +155,8 @@ defmodule Hospex.Content.MockCalendarData do
 
       single("Out of order",    "r204", -3, 12, 0, 0, :hold,   0,    0,    "—"),
 
-      single("Eleanor Whitmore", "r301", -2, 6, 2, 0, :in,     2100, 1050, "DR"),
-      single("Khalid Rashid",    "r301",  5, 3, 2, 0, :paid,   1050, 1050, "BC"),
+      single("Eleanor Whitmore", "room-301", -2, 6, 2, 0, :in,     2100, 1050, "DR"),
+      single("Khalid Rashid",    "room-301",  5, 3, 2, 0, :paid,   1050, 1050, "BC"),
 
       single("Theo Bergstrom",   "r302",  6, 2, 2, 0, :unpaid, 700,  0,    "DR"),
 
@@ -173,7 +173,7 @@ defmodule Hospex.Content.MockCalendarData do
         src: "BC", status: :in, total: 4080, paid: 2040,
         stays: [
           %{room_id: "r401", guest: "Sade & Femi Okonkwo", adults: 2, kids: 2, offset: -3, nights: 6},
-          %{room_id: "r301", guest: "Adaeze Okonkwo",      adults: 2, kids: 0, offset: -3, nights: 6}
+          %{room_id: "room-301", guest: "Adaeze Okonkwo",      adults: 2, kids: 0, offset: -3, nights: 6}
         ]
       },
 
@@ -182,8 +182,8 @@ defmodule Hospex.Content.MockCalendarData do
         lead_guest: "Olivia Brandt",
         src: "DR", status: :partial, total: 3450, paid: 1725,
         stays: [
-          %{room_id: "r201", guest: "Olivia & Tom Brandt",  adults: 2, kids: 1, offset: 2, nights: 5},
-          %{room_id: "r202", guest: "Eric & Mara Brandt",   adults: 2, kids: 0, offset: 2, nights: 5},
+          %{room_id: "room-201", guest: "Olivia & Tom Brandt",  adults: 2, kids: 1, offset: 2, nights: 5},
+          %{room_id: "room-202", guest: "Eric & Mara Brandt",   adults: 2, kids: 0, offset: 2, nights: 5},
           %{room_id: "r203", guest: "Helena Brandt-Stern",  adults: 2, kids: 0, offset: 2, nights: 5}
         ]
       },
