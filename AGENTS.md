@@ -27,10 +27,15 @@ Elixir 1.16+ / Phoenix 1.7 / LiveView / PostgreSQL / Oban / ex_json_schema / yam
 
 ## Dev
 ```
+mix setup           # deps + db create/migrate/seed + assets (first-time setup)
 mix phx.server      # start dev server
 mix test            # run tests
 mix ecto.reset      # drop + create + migrate + seed
 ```
+
+### Prerequisites
+- **Elixir 1.16+** and **Node 18+** on PATH.
+- **PostgreSQL 14+ running on `localhost:5432`** with a superuser that matches `config/dev.exs` (defaults to `postgres`/`postgres`). `mix setup` will hang or fail on `ecto.create` if no Postgres is reachable. Quick options on macOS: install [Postgres.app](https://postgresapp.com), or `docker run -d --name hospex-pg -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:16`.
 
 ## Conventions
 - Money formatted via `format_money/1`; dates via `Calendar.strftime` or local helpers (`format_date_range`, `dow_abbr`, `month_abbr`).

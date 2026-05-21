@@ -172,6 +172,13 @@ mix phx.server
 
 Requires Elixir 1.16+ and PostgreSQL 14+.
 
+**Postgres must be running on `localhost:5432`** before `mix setup` — it will fail on `ecto.create` otherwise. Quick options on macOS:
+
+- Install [Postgres.app](https://postgresapp.com) (GUI, simplest), or
+- Run a container: `docker run -d --name hospex-pg -e POSTGRES_PASSWORD=postgres -p 5432:5432 postgres:16`
+
+The dev config (`config/dev.exs`) expects user/password `postgres`/`postgres` by default.
+
 ### Environment variables
 
 | Variable | Required | Description |
