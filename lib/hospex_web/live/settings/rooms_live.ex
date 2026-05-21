@@ -9,7 +9,7 @@ defmodule HospexWeb.Settings.RoomsLive do
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: Property.subscribe()
-    {:ok, refresh(socket) |> assign(editing: nil, errors: [], saved: nil, views: @views)}
+    {:ok, refresh(socket) |> assign(editing: nil, errors: [], flash_msg: nil, new?: false, views: @views)}
   end
 
   @impl true
@@ -26,23 +26,23 @@ defmodule HospexWeb.Settings.RoomsLive do
 
   @impl true
   def handle_event("new", _, socket) do
-    {:noreply, assign(socket, editing: blank(socket), errors: [], saved: nil, new?: true)}
+    {:noreply, assign(socket, editing: blank(socket), errors: [], flash_msg: nil, new?: true)}
   end
 
   def handle_event("edit", %{"id" => id}, socket) do
     case Enum.find(socket.assigns.rooms, &(Map.get(&1, "id") == id)) do
       nil -> {:noreply, socket}
-      r   -> {:noreply, assign(socket, editing: r, errors: [], saved: nil, new?: false)}
+      r   -> {:noreply, assign(socket, editing: r, errors: [], flash_msg: nil, new?: false)}
     end
   end
 
   def handle_event("cancel", _, socket) do
-    {:noreply, assign(socket, editing: nil, errors: [], saved: nil)}
+    {:noreply, assign(socket, editing: nil, errors: [], flash_msg: nil)}
   end
 
   def handle_event("delete", %{"id" => id}, socket) do
     case Property.delete_room(id) do
-      :ok -> {:noreply, refresh(socket) |> assign(editing: nil, saved: "Deleted #{id}", errors: [])}
+      :ok -> {:noreply, refresh(socket) |> assign(editing: nil, flash_msg: "Deleted #{id}", errors: [])}
       err -> {:noreply, assign(socket, errors: [%{path: nil, message: inspect(err)}])}
     end
   end
@@ -58,8 +58,10 @@ defmodule HospexWeb.Settings.RoomsLive do
     cond do
       id in [nil, ""] ->
         {:noreply, assign(socket, errors: [%{path: nil, message: "ID / name is required."}])}
+
       (params["room_type_id"] || "") == "" ->
         {:noreply, assign(socket, errors: [%{path: nil, message: "Room type is required."}])}
+
       true ->
         patched =
           editing
@@ -71,13 +73,19 @@ defmodule HospexWeb.Settings.RoomsLive do
 
         case Property.save_room(patched) do
           {:ok, _} ->
-            {:noreply, refresh(socket) |> assign(editing: nil, errors: [], saved: "Saved #{id}")}
+            {:noreply, refresh(socket) |> assign(editing: nil, errors: [], flash_msg: "Saved #{id}")}
+
           {:error, errs} when is_list(errs) ->
-            {:noreply, assign(socket, editing: patched, errors: errs, saved: nil, new?: new?)}
+            {:noreply, assign(socket, editing: patched, errors: errs, flash_msg: nil, new?: new?)}
+
           {:error, other} ->
-            {:noreply, assign(socket, editing: patched, errors: [%{path: nil, message: inspect(other)}], new?: new?)}
+            {:noreply, assign(socket, editing: patched, errors: [%{path: nil, message: inspect(other)}], flash_msg: nil, new?: new?)}
         end
     end
+  end
+
+  def handle_event("dismiss_flash", _, socket) do
+    {:noreply, assign(socket, flash_msg: nil)}
   end
 
   defp blank(socket) do
@@ -116,94 +124,87 @@ defmodule HospexWeb.Settings.RoomsLive do
   def render(assigns) do
     ~H"""
     <Shared.chrome active={:rooms}>
-      <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 24px;">
-        <h1 style="margin: 0; font-size: 24px;">Rooms</h1>
-        <button type="button" phx-click="new" style={Shared.btn_primary_style()}>+ New room</button>
-      </div>
-
-      <%= if @saved do %>
-        <div style="padding: 10px 14px; background: #d1fae5; border: 1px solid #6ee7b7; border-radius: 4px; margin-bottom: 16px; font-size: 13px;">
-          <%= @saved %>
+      <div class="settings-inner">
+        <div class="settings-head">
+          <div>
+            <h1 class="settings-title">Rooms</h1>
+            <p class="settings-sub">Physical, sellable units. Each room belongs to a room type.</p>
+          </div>
+          <button type="button" phx-click="new" class="settings-btn primary">New room</button>
         </div>
-      <% end %>
 
-      <%= if @errors != [] do %>
-        <div style="padding: 10px 14px; background: #fee2e2; border: 1px solid #fca5a5; border-radius: 4px; margin-bottom: 16px; font-size: 13px;">
-          <ul style="margin: 0; padding-left: 18px;">
-            <%= for e <- @errors do %>
-              <li><%= if e.path, do: e.path <> ": ", else: "" %><%= e.message %></li>
-            <% end %>
-          </ul>
-        </div>
-      <% end %>
+        <Shared.error_banner errors={@errors} />
 
-      <%= if @editing do %>
-        <div style="border: 1px solid var(--border, #d1d5db); border-radius: 6px; padding: 20px; margin-bottom: 24px; background: var(--bg-elev, #fff);">
-          <h2 style="margin: 0 0 16px; font-size: 16px;">
-            <%= if @new?, do: "New room", else: "Edit room" %>
-          </h2>
+        <%= if @editing do %>
           <form phx-submit="save">
-            <%= if @new? do %>
-              <Shared.field label="ID (slug, e.g. room-101)" name="id_input"
-                value="" pattern="[a-z0-9][a-z0-9-]*[a-z0-9]" required />
-            <% else %>
-              <div style="font-size: 12px; color: var(--ink-muted, #6b7280); margin-bottom: 14px;">
-                ID: <code><%= Map.get(@editing, "id") %></code>
+            <Shared.section title={if @new?, do: "New room", else: "Edit room"}>
+              <%= if @new? do %>
+                <Shared.field label="ID" name="id_input" value=""
+                  pattern="[a-z0-9][a-z0-9-]*[a-z0-9]" required
+                  placeholder="room-101"
+                  help="Lowercase letters, digits, and hyphens (e.g. room-101)." />
+              <% else %>
+                <Shared.field_static label="ID" span={1}>
+                  <code><%= Map.get(@editing, "id") %></code>
+                </Shared.field_static>
+              <% end %>
+              <Shared.select label="Room type" name="room_type_id"
+                value={Map.get(@editing, "room_type_id")}
+                options={Enum.map(@types, fn t -> {get_in(t, ["name", "en"]) || Map.get(t, "id"), Map.get(t, "id")} end)} />
+              <Shared.field label="Name (English)" name="name_en"
+                value={get_in(@editing, ["name", "en"])} required span={2} />
+              <Shared.field label="Floor" name="floor" type="number"
+                value={Map.get(@editing, "floor")} narrow />
+              <Shared.select label="View" name="view"
+                value={Map.get(@editing, "view") || ""}
+                options={[{"(none)", ""} | Enum.map(@views, fn v -> {humanize(v), v} end)]} />
+            </Shared.section>
+
+            <Shared.actions_bar>
+              <button type="button" phx-click="cancel" class="settings-btn">Cancel</button>
+              <button type="submit" class="settings-btn primary">Save</button>
+            </Shared.actions_bar>
+          </form>
+        <% else %>
+          <div class="settings-list" data-cols="rooms">
+            <div class="settings-list-head">
+              <div>Room</div>
+              <div>Type</div>
+              <div>Floor</div>
+              <div>View</div>
+              <div></div>
+            </div>
+            <%= for r <- @rooms do %>
+              <div class="settings-list-row">
+                <div>
+                  <div class="settings-list-name"><%= get_in(r, ["name", "en"]) || Map.get(r, "id") %></div>
+                  <div class="settings-list-id"><%= Map.get(r, "id") %></div>
+                </div>
+                <div><%= Map.get(@type_names, Map.get(r, "room_type_id"), Map.get(r, "room_type_id")) %></div>
+                <div><%= Map.get(r, "floor") %></div>
+                <div><%= humanize_view(Map.get(r, "view")) %></div>
+                <div class="settings-list-actions">
+                  <button type="button" phx-click="edit" phx-value-id={Map.get(r, "id")}
+                          class="settings-btn">Edit</button>
+                  <button type="button" phx-click="delete" phx-value-id={Map.get(r, "id")}
+                          data-confirm={"Delete #{Map.get(r, "id")}?"}
+                          class="settings-btn danger">Delete</button>
+                </div>
               </div>
             <% end %>
-            <Shared.select label="Room type" name="room_type_id"
-              value={Map.get(@editing, "room_type_id")}
-              options={Enum.map(@types, fn t -> {get_in(t, ["name", "en"]) || Map.get(t, "id"), Map.get(t, "id")} end)} />
-            <Shared.field label="Name (English)" name="name_en"
-              value={get_in(@editing, ["name", "en"])} required />
-            <Shared.field label="Floor" name="floor" type="number"
-              value={Map.get(@editing, "floor")} />
-            <Shared.select label="View" name="view"
-              value={Map.get(@editing, "view") || ""}
-              options={[{"(none)", ""} | Enum.map(@views, fn v -> {humanize(v), v} end)]} />
-
-            <div style="display: flex; gap: 8px; margin-top: 16px;">
-              <button type="submit" style={Shared.btn_primary_style()}>Save</button>
-              <button type="button" phx-click="cancel" style={Shared.btn_secondary_style()}>Cancel</button>
-            </div>
-          </form>
-        </div>
-      <% end %>
-
-      <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
-        <thead>
-          <tr style="text-align: left; border-bottom: 1px solid var(--border, #e5e7eb);">
-            <th style="padding: 10px 12px;">ID</th>
-            <th style="padding: 10px 12px;">Type</th>
-            <th style="padding: 10px 12px;">Floor</th>
-            <th style="padding: 10px 12px;">View</th>
-            <th style="padding: 10px 12px;"></th>
-          </tr>
-        </thead>
-        <tbody>
-          <%= for r <- @rooms do %>
-            <tr style="border-bottom: 1px solid var(--border, #f3f4f6);">
-              <td style="padding: 10px 12px; font-weight: 600;"><%= Map.get(r, "id") %></td>
-              <td style="padding: 10px 12px;"><%= Map.get(@type_names, Map.get(r, "room_type_id"), Map.get(r, "room_type_id")) %></td>
-              <td style="padding: 10px 12px;"><%= Map.get(r, "floor") %></td>
-              <td style="padding: 10px 12px;"><%= Map.get(r, "view") %></td>
-              <td style="padding: 10px 12px; text-align: right;">
-                <button type="button" phx-click="edit" phx-value-id={Map.get(r, "id")}
-                        style={Shared.btn_secondary_style()}>Edit</button>
-                <button type="button" phx-click="delete" phx-value-id={Map.get(r, "id")}
-                        data-confirm={"Delete #{Map.get(r, "id")}?"}
-                        style={Shared.btn_danger_style()}>Delete</button>
-              </td>
-            </tr>
-          <% end %>
-          <%= if @rooms == [] do %>
-            <tr><td colspan="5" style="padding: 16px 12px; text-align: center; color: var(--ink-muted, #6b7280);">No rooms yet.</td></tr>
-          <% end %>
-        </tbody>
-      </table>
+            <%= if @rooms == [] do %>
+              <div class="settings-list-empty">No rooms yet.</div>
+            <% end %>
+          </div>
+        <% end %>
+      </div>
+      <Shared.saved_flash message={@flash_msg} />
     </Shared.chrome>
     """
   end
 
   defp humanize(s), do: s |> String.replace("_", " ") |> String.capitalize()
+  defp humanize_view(nil), do: ""
+  defp humanize_view(""), do: ""
+  defp humanize_view(v), do: humanize(v)
 end

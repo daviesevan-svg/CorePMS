@@ -1,0 +1,292 @@
+/* ── Settings pages ──────────────────────────────────────────
+   Pure presentation. Reuses tokens from calendar.css (--ink,
+   --line, --bg-elev, --bg-sunk, --accent, --shadow-*).
+   ───────────────────────────────────────────────────────────── */
+
+.settings-shell {
+  display: grid;
+  grid-template-columns: 232px 1fr;
+  min-height: calc(100vh - var(--rail-h));
+  background: var(--bg-sunk);
+}
+
+/* ── Left rail ──────────────────────────────────────────────── */
+.settings-rail {
+  background: var(--bg-elev);
+  border-right: 1px solid var(--line);
+  padding: 20px 0 24px;
+  min-height: 100%;
+}
+.settings-rail-head {
+  padding: 0 20px 12px;
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+.settings-rail-list {
+  display: flex; flex-direction: column;
+  padding: 0 12px;
+}
+.settings-rail-link {
+  position: relative;
+  display: block;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px; font-weight: 500;
+  color: var(--ink-2);
+  text-decoration: none;
+  margin-bottom: 2px;
+}
+.settings-rail-link:hover {
+  background: var(--bg-sunk);
+  color: var(--ink);
+}
+.settings-rail-link[data-active="1"] {
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-weight: 600;
+}
+.settings-rail-link[data-active="1"]::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 6px; bottom: 6px;
+  width: 3px; border-radius: 2px;
+  background: var(--accent);
+}
+
+/* ── Content area ───────────────────────────────────────────── */
+.settings-main {
+  display: flex; flex-direction: column;
+  min-height: 100%;
+}
+.settings-inner {
+  flex: 1;
+  padding: 24px 32px 96px;
+  max-width: 920px;
+  width: 100%;
+}
+.settings-head {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 20px; gap: 16px;
+}
+.settings-title {
+  margin: 0;
+  font-size: 20px; font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+.settings-sub {
+  margin: 2px 0 0;
+  font-size: 12.5px; color: var(--ink-3);
+}
+
+/* ── Section card ───────────────────────────────────────────── */
+.settings-section {
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow-1);
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+.settings-section-head {
+  padding: 14px 20px 0;
+}
+.settings-section-title {
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+.settings-section-body {
+  padding: 14px 20px 20px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 16px;
+}
+.settings-section-body > .span-2 { grid-column: 1 / -1; }
+.settings-section-body > .narrow { max-width: 200px; }
+
+/* ── Field (label + input + helper/error) ───────────────────── */
+.settings-field {
+  display: flex; flex-direction: column;
+  gap: 5px; min-width: 0;
+}
+.settings-field-label {
+  font-size: 11.5px; font-weight: 500;
+  color: var(--ink-3);
+}
+.settings-field-label .req { color: var(--unpaid-bar); margin-left: 2px; }
+.settings-field-input,
+.settings-field-select,
+.settings-field-textarea {
+  appearance: none; -webkit-appearance: none;
+  width: 100%;
+  height: 34px;
+  padding: 0 11px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-elev);
+  color: var(--ink);
+  font: inherit; font-size: 13px;
+  outline: 0;
+}
+.settings-field-textarea {
+  height: auto;
+  min-height: 80px;
+  padding: 8px 11px;
+  resize: vertical;
+  line-height: 1.45;
+}
+.settings-field-input:focus,
+.settings-field-select:focus,
+.settings-field-textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.settings-field-input[data-invalid="1"],
+.settings-field-select[data-invalid="1"],
+.settings-field-textarea[data-invalid="1"] {
+  border-color: var(--unpaid-bar);
+}
+.settings-field-help {
+  font-size: 11px; color: var(--ink-3);
+  line-height: 1.4;
+}
+.settings-field-error {
+  font-size: 11.5px; color: var(--unpaid-ink);
+}
+.settings-field-static {
+  font-size: 12.5px; color: var(--ink-2);
+}
+.settings-field-static code {
+  font-family: 'Geist Mono', monospace;
+  font-size: 12px; color: var(--ink);
+  background: var(--bg-sunk);
+  border: 1px solid var(--line);
+  padding: 1px 6px; border-radius: 4px;
+}
+
+/* ── Sticky action bar ──────────────────────────────────────── */
+.settings-actions {
+  position: sticky; bottom: 0;
+  display: flex; align-items: center; gap: 8px; justify-content: flex-end;
+  padding: 12px 32px;
+  background: var(--bg-elev);
+  border-top: 1px solid var(--line);
+  box-shadow: 0 -4px 14px rgba(16, 24, 40, .04);
+  z-index: 4;
+}
+.settings-actions .left {
+  margin-right: auto;
+  font-size: 12px; color: var(--ink-3);
+}
+
+/* ── Banners / flashes ──────────────────────────────────────── */
+.settings-banner {
+  display: flex; align-items: flex-start; gap: 10px;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 12.5px;
+  margin-bottom: 14px;
+  line-height: 1.45;
+}
+.settings-banner.error {
+  background: var(--unpaid-bg);
+  color: var(--unpaid-ink);
+  border: 1px solid var(--unpaid-bar);
+}
+.settings-banner ul { margin: 4px 0 0 0; padding-left: 18px; }
+.settings-banner-title { font-weight: 600; }
+
+/* ── List (room types / rooms table-like) ───────────────────── */
+.settings-list {
+  background: var(--bg-elev);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+}
+.settings-list-head,
+.settings-list-row {
+  display: grid;
+  align-items: center;
+  gap: 12px;
+  padding: 0 16px;
+}
+.settings-list-head {
+  height: 40px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-sunk);
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase;
+  color: var(--ink-3);
+}
+.settings-list-row {
+  min-height: 56px;
+  padding-top: 10px; padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--ink);
+}
+.settings-list-row:last-child { border-bottom: 0; }
+.settings-list-row:hover { background: var(--bg-sunk); }
+.settings-list-empty {
+  padding: 32px 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--ink-3);
+}
+
+.settings-list[data-cols="types"] .settings-list-head,
+.settings-list[data-cols="types"] .settings-list-row {
+  grid-template-columns: 2fr 1fr 1fr auto;
+}
+.settings-list[data-cols="rooms"] .settings-list-head,
+.settings-list[data-cols="rooms"] .settings-list-row {
+  grid-template-columns: 2fr 2fr 1fr 1fr auto;
+}
+
+.settings-list-name { font-weight: 600; color: var(--ink); }
+.settings-list-id {
+  font-family: 'Geist Mono', monospace;
+  font-size: 11.5px; color: var(--ink-3);
+  margin-top: 2px;
+}
+.settings-list-actions {
+  display: flex; gap: 6px; justify-content: flex-end;
+}
+
+/* ── Buttons (reuse .dr-action shape, but allow auto-width) ─── */
+.settings-btn {
+  appearance: none;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 32px; padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--bg-elev);
+  font: inherit; font-size: 12.5px; font-weight: 500;
+  color: var(--ink); cursor: pointer;
+}
+.settings-btn:hover { background: var(--bg-sunk); }
+.settings-btn.primary {
+  background: var(--ink); color: var(--bg-elev); border-color: var(--ink);
+}
+.settings-btn.primary:hover { background: oklch(14% 0.012 260); }
+.settings-btn.danger {
+  color: var(--unpaid-ink);
+  border-color: var(--unpaid-bar);
+}
+.settings-btn.danger:hover {
+  background: var(--unpaid-bg);
+}
+.settings-btn[disabled],
+.settings-btn.is-disabled {
+  opacity: .5; cursor: not-allowed;
+}
+
+/* Narrow viewport: collapse two-column grid */
+@media (max-width: 720px) {
+  .settings-shell { grid-template-columns: 1fr; }
+  .settings-rail { border-right: 0; border-bottom: 1px solid var(--line); }
+  .settings-section-body { grid-template-columns: 1fr; }
+}
