@@ -10,12 +10,20 @@ defmodule Hospex.Content.MockInventory do
   """
 
   # Base nightly rate per room type. Tuned so weekend uplift produces tidy
-  # round-ish numbers (e.g. 170 → 204 on weekends).
-  @base_rates %{"std" => 170, "dlx" => 230, "sui" => 350, "fam" => 260}
+  # round-ish numbers (e.g. 170 → 204 on weekends). Keys match the YAML-
+  # derived room-type ids in priv/schemas/v1/room_type.json examples; an
+  # unknown id falls back to a deterministic mid-range rate so the page
+  # never crashes when a hotel adds a new type.
+  @base_rates %{
+    "classic-room"     => 170,
+    "deluxe-sea-view"  => 230,
+    "junior-suite"     => 350
+  }
+  @fallback_rate 200
 
   @doc "Base (un-overridden) inventory cell for `{room_type_id, date}`."
   def default_cell(rt_id, date) do
-    base    = Map.fetch!(@base_rates, rt_id)
+    base    = Map.get(@base_rates, rt_id, @fallback_rate)
     dow     = Date.day_of_week(date)
     weekend = dow in [5, 6]
     rate    = round(base * if(weekend, do: 1.20, else: 0.95))
