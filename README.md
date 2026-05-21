@@ -2,7 +2,7 @@
 
 A hospitality content platform for managing property content as structured data in public Git repositories, backed by a Phoenix/LiveView web application.
 
-Built as a strategic initiative to replace and supersede the content management and IBE (Internet Booking Engine) features in [Channex](https://channex.io).
+An open, AI-friendly alternative to closed-source hotel content management and IBE (Internet Booking Engine) systems.
 
 ---
 
@@ -21,7 +21,7 @@ The PostgreSQL database is a cache and operational layer. Git is the source of t
 
 ## Repository layout (per property)
 
-Each property gets a public GitHub repository under the Channex organisation. The repo looks like this:
+Each property gets its own public GitHub repository. The repo looks like this:
 
 ```
 le-petit-madeleine/          ← repo root = property ID
@@ -255,4 +255,4 @@ examples/
 | Later | GitHub Actions validation workflow template |
 | Later | IBE templates and booking flow |
 | Later | API for PMS partner content ingestion |
-| Later | Migration of existing Channex properties |
+| Later | Migration tooling for properties from other PMS/CMS systems |
