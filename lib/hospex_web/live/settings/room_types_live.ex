@@ -166,7 +166,8 @@ defmodule HospexWeb.Settings.RoomTypesLive do
       page_sub={"#{length(@types)} room types defined — categories of rooms you sell with shared occupancy, beds, and amenities."}
       status={if @editing, do: "Editing", else: nil}
       unsaved_count={@unsaved_count}
-      form_id="room-type-form">
+      form_id="room-type-form"
+      current_path="/settings/room-types">
 
       <Shared.error_banner errors={@errors} />
 

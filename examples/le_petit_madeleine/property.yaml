@@ -1,94 +1,60 @@
 schema_version: "1.0"
 id: le-petit-madeleine
-name:
-  en: Le Petit Madeleine
-  fr: Le Petit Madeleine
-
-description:
-  en: >
-    A family-run boutique hotel steps from the Promenade des Anglais in Nice,
-    combining Provençal charm with modern comforts. Five individually decorated
-    rooms, each with sea or garden views.
-  fr: >
-    Un boutique hôtel familial à deux pas de la Promenade des Anglais à Nice,
-    alliant charme provençal et confort moderne. Cinq chambres décorées
-    individuellement, chacune avec vue sur la mer ou le jardin.
-
-property_type: boutique_hotel
-star_rating: 4
-
 address:
-  line1: 12 Rue de la Liberté
   city: Nice
-  state: Alpes-Maritimes
-  postal_code: "06000"
   country: FR
-
-geo:
-  lat: 43.6947
-  lng: 7.2659
-
-contact:
-  phone: "+33493887766"
-  email: bonjour@lepetitmadeleine.fr
-  website: https://www.lepetitmadeleine.fr
-
-languages:
-  - fr
-  - en
-  - it
-
-currency: EUR
-timezone: Europe/Paris
-
+  line1: 12 Rue de la Liberté
+  postal_code: "06000"
+  state: Alpes-Maritimes
+amenities:
+- wifi
+- air_conditioning
+- garden
+- terrace
+- continental_breakfast
+- concierge
+- luggage_storage
+- daily_housekeeping
+- express_check_in_out
+- non_smoking_throughout
+- 24h_reception
+- beach_access
+- airport_shuttle
+- pool
+- gym
 check_in:
-  from: "15:00"
-  to: "22:00"
+  from: "15:30"
   notes:
-    en: Late arrivals after 22:00 are possible by arrangement — please contact us in advance.
-    fr: Les arrivées tardives après 22h00 sont possibles sur arrangement — contactez-nous à l'avance.
-
+    en: "Late arrivals after 22:00 are possible by arrangement — please contact us in advance."
+    fr: "Les arrivées tardives après 22h00 sont possibles sur arrangement — contactez-nous à l'avance."
+  to: "22:00"
 check_out:
   by: "11:00"
   notes:
-    en: Luggage storage available until 18:00 on the day of departure.
-    fr: Conservation des bagages disponible jusqu'à 18h00 le jour du départ.
-
-amenities:
-  - wifi
-  - air_conditioning
-  - garden
-  - terrace
-  - continental_breakfast
-  - concierge
-  - luggage_storage
-  - daily_housekeeping
-  - express_check_in_out
-  - non_smoking_throughout
-
-photos:
-  - url: https://media.lepetitmadeleine.fr/facade-main.jpg
-    alt:
-      en: Pale ochre facade of Le Petit Madeleine with blue shutters and bougainvillea
-      fr: Façade ocre pâle du Petit Madeleine avec volets bleus et bougainvillea
-    category: facade
-    order: 1
-    hero: true
-
-  - url: https://media.lepetitmadeleine.fr/garden-terrace.jpg
-    alt:
-      en: Sunny garden terrace with wicker chairs and lemon trees
-      fr: Terrasse ensoleillée avec fauteuils en osier et citronniers
-    category: garden
-    order: 2
-
-  - url: https://media.lepetitmadeleine.fr/lobby.jpg
-    alt:
-      en: Lobby with original tiled floor and Provençal art
-      fr: Hall d'entrée avec carrelage d'origine et art provençal
-    category: lobby
-    order: 3
-
+    en: "Luggage storage available until 18:00 on the day of departure."
+    fr: "Conservation des bagages disponible jusqu'à 18h00 le jour du départ."
+contact:
+  email: "bonjour@lepetitmadeleine.fr"
+  phone: "+33493887766"
+  website: "https://www.lepetitmadeleine.fr"
+currency: EUR
+description:
+  en: "A family-run boutique hotel steps from the Promenade des Anglais in Nice, combining Provençal charm with modern comforts. Five individually decorated rooms, each with sea or garden views. TEST\n"
+  fr: "Un boutique hôtel familial à deux pas de la Promenade des Anglais à Nice, alliant charme provençal et confort moderne. Cinq chambres décorées individuellement, chacune avec vue sur la mer ou le jardin.\n"
+geo:
+  lat: 43.6947
+  lng: 7.2659
+languages:
+- fr
+- en
+- it
+name:
+  en: Le Petit Madelein
+  fr: Le Petit Madeleine
+photos: []
+property_type: hotel
 social_media:
+  facebook: "https://www.facebook.com/lepetitmadeleine"
   instagram: lepetitmadeleine_nice
-  facebook: https://www.facebook.com/lepetitmadeleine
+star_rating: 4
+timezone: Europe/Paris

@@ -69,6 +69,7 @@ defmodule HospexWeb.Settings.Shared do
   attr :unsaved_count, :integer, default: 0
   attr :form_id, :string, default: nil
   attr :scrollspy?, :boolean, default: false
+  attr :current_path, :string, default: nil
   slot :inner_block, required: true
 
   def chrome(assigns) do
@@ -76,7 +77,7 @@ defmodule HospexWeb.Settings.Shared do
     <div class="app">
       <.settings_topbar />
       <div class="set-main">
-        <.rail active={@active} active_sub={@active_sub} sub_anchors={@sub_anchors} />
+        <.rail active={@active} active_sub={@active_sub} sub_anchors={@sub_anchors} current_path={@current_path} />
         <div class="set-content">
           <.page_head
             crumbs={@crumbs} title={@page_title} sub={@page_sub}
@@ -165,12 +166,27 @@ defmodule HospexWeb.Settings.Shared do
 
   def categories, do: @categories
 
+  # Sub-pages shown under an active rail item when it's the navigation target
+  # for multiple LiveView routes. Distinct from `sub_anchors`, which are
+  # in-page scroll-spy anchors. Keyed by the parent rail item's id.
+  @sub_pages %{
+    rooms_and_rates: [
+      %{name: "Room Types", href: "/settings/room-types"},
+      %{name: "Rooms",      href: "/settings/rooms"}
+    ]
+  }
+
   attr :active, :atom, required: true
   attr :active_sub, :atom, default: nil
   attr :sub_anchors, :list, default: []
+  attr :current_path, :string, default: nil
 
   def rail(assigns) do
-    assigns = assign(assigns, :categories, @categories)
+    assigns =
+      assigns
+      |> assign(:categories, @categories)
+      |> assign(:sub_pages, @sub_pages)
+
     ~H"""
     <aside class="set-rail">
       <%= for cat <- @categories do %>
@@ -181,6 +197,8 @@ defmodule HospexWeb.Settings.Shared do
               item={it}
               active={it.id == @active}
               sub_anchors={if it.id == @active, do: @sub_anchors, else: []}
+              sub_pages={if it.id == @active, do: Map.get(@sub_pages, it.id, []), else: []}
+              current_path={@current_path}
               active_sub={@active_sub} />
           <% end %>
         </div>
@@ -199,7 +217,9 @@ defmodule HospexWeb.Settings.Shared do
   attr :item, :map, required: true
   attr :active, :boolean, default: false
   attr :sub_anchors, :list, default: []
+  attr :sub_pages, :list, default: []
   attr :active_sub, :atom, default: nil
+  attr :current_path, :string, default: nil
 
   defp rail_item(assigns) do
     ~H"""
@@ -214,6 +234,14 @@ defmodule HospexWeb.Settings.Shared do
         <span class="ic"><.icon name={@item.icon} /></span>
         <%= @item.name %>
         <%= if Map.has_key?(@item, :meta) do %><span class="meta"><%= @item.meta %></span><% end %>
+      </div>
+    <% end %>
+    <%= if @active and @sub_pages != [] do %>
+      <div class="set-rail-subs">
+        <%= for sp <- @sub_pages do %>
+          <.link navigate={sp.href} class="set-rail-sub"
+                 data-active={if @current_path == sp.href, do: "1"}><%= sp.name %></.link>
+        <% end %>
       </div>
     <% end %>
     <%= if @active and @sub_anchors != [] do %>

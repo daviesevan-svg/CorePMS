@@ -521,7 +521,8 @@ defmodule HospexWeb.Settings.PropertyLive do
       aside_button_icon={:globe}
       unsaved_count={@unsaved_count}
       form_id="property-form"
-      scrollspy?={true}>
+      scrollspy?={true}
+      current_path="/settings/property">
 
       <Shared.error_banner errors={@errors} />
 

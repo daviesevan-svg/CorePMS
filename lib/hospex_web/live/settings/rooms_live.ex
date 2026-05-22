@@ -158,7 +158,8 @@ defmodule HospexWeb.Settings.RoomsLive do
       page_sub={"#{length(@rooms)} rooms across #{length(@floors)} floors — physical units guests book."}
       status={if @editing, do: "Editing", else: nil}
       unsaved_count={@unsaved_count}
-      form_id="room-form">
+      form_id="room-form"
+      current_path="/settings/rooms">
 
       <Shared.error_banner errors={@errors} />
 
