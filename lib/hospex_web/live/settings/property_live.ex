@@ -2,6 +2,7 @@ defmodule HospexWeb.Settings.PropertyLive do
   use HospexWeb, :live_view
 
   alias Hospex.Content.Property
+  alias Hospex.Content.PhotoStorage
   alias HospexWeb.Settings.Shared
 
   # ── Static data (mirrors /tmp/settings-app.jsx top-level lists) ────────────
@@ -107,14 +108,26 @@ defmodule HospexWeb.Settings.PropertyLive do
 
     form = data_to_form(data)
 
-    {:ok,
-     assign(socket,
-       data: data,
-       form: form,
-       original_form: form,
-       errors: errors,
-       flash_msg: nil
-     )}
+    socket =
+      socket
+      |> assign(
+        data: data,
+        form: form,
+        original_form: form,
+        errors: errors,
+        flash_msg: nil,
+        upload_target_category: "other",
+        upload_target_kind: "gallery"
+      )
+      |> allow_upload(:photo,
+        accept: ~w(.jpg .jpeg .png .webp),
+        max_entries: 1,
+        max_file_size: 8_000_000,
+        auto_upload: true,
+        progress: &handle_photo_progress/3
+      )
+
+    {:ok, socket}
   end
 
   defp data_to_form(data) do
@@ -297,6 +310,107 @@ defmodule HospexWeb.Settings.PropertyLive do
 
   def handle_event("dismiss_flash", _, socket) do
     {:noreply, assign(socket, flash_msg: nil)}
+  end
+
+  # ── Photo upload ──────────────────────────────────────────────
+  #
+  # Click flow: the photo slot fires `pick_slot` with the category +
+  # visual kind (logo / cover / gallery). We stash both in the socket so
+  # the uploaded entry knows where it's going, then the JS click handler
+  # on the slot opens the hidden file input. With `auto_upload: true`,
+  # selecting a file triggers the `:photo` upload immediately; the
+  # `handle_photo_progress/3` callback consumes it on completion.
+
+  def handle_event("pick_slot", %{"category" => cat} = params, socket) do
+    kind = Map.get(params, "kind", "gallery")
+    {:noreply, assign(socket, upload_target_category: cat, upload_target_kind: kind)}
+  end
+
+  def handle_event("validate_photo", _params, socket) do
+    {:noreply, socket}
+  end
+
+  def handle_event("cancel_photo", %{"ref" => ref}, socket) do
+    {:noreply, cancel_upload(socket, :photo, ref)}
+  end
+
+  def handle_event("delete_photo", %{"url" => url}, socket) do
+    case Property.save_property(Property.remove_photo(socket.assigns.data, url)) do
+      {:ok, fresh} ->
+        _ = PhotoStorage.delete(url)
+        {:noreply,
+         assign(socket,
+           data: fresh,
+           form: data_to_form(fresh) |> then(&Map.merge(socket.assigns.form, &1)),
+           errors: [],
+           flash_msg: "Photo removed"
+         )}
+
+      {:error, errs} when is_list(errs) ->
+        {:noreply, assign(socket, errors: errs, flash_msg: nil)}
+
+      {:error, other} ->
+        {:noreply, assign(socket, errors: [%{path: nil, message: inspect(other)}], flash_msg: nil)}
+    end
+  end
+
+  # LiveView `progress` callback: fires on every progress tick and once
+  # more with `entry.done? == true`. We only consume on completion.
+  defp handle_photo_progress(:photo, entry, socket) do
+    if entry.done? do
+      property_id = Map.get(socket.assigns.data, "id", "property")
+      category    = socket.assigns.upload_target_category
+
+      result =
+        consume_uploaded_entry(socket, entry, fn %{path: tmp} ->
+          photo_id = :crypto.strong_rand_bytes(8) |> Base.url_encode64(padding: false)
+          binary   = File.read!(tmp)
+
+          with {:ok, url} <- PhotoStorage.put(property_id, photo_id, binary, entry.client_type) do
+            photo = %{
+              "url"      => url,
+              "alt"      => %{"en" => "Photo"},
+              "category" => category
+            }
+
+            updated = Property.add_photo(socket.assigns.data, photo)
+
+            case Property.save_property(updated) do
+              {:ok, fresh} ->
+                {:ok, {:saved, fresh}}
+
+              {:error, errs} ->
+                # Validation failed — undo the filesystem write so we
+                # don't accumulate orphan blobs.
+                _ = PhotoStorage.delete(url)
+                {:ok, {:error, errs}}
+            end
+          else
+            err -> {:ok, {:error, err}}
+          end
+        end)
+
+      socket =
+        case result do
+          {:saved, fresh} ->
+            assign(socket,
+              data: fresh,
+              form: Map.merge(socket.assigns.form, data_to_form(fresh)),
+              errors: [],
+              flash_msg: "Photo uploaded"
+            )
+
+          {:error, errs} when is_list(errs) ->
+            assign(socket, errors: errs, flash_msg: nil)
+
+          {:error, other} ->
+            assign(socket, errors: [%{path: nil, message: inspect(other)}], flash_msg: nil)
+        end
+
+      {:noreply, socket}
+    else
+      {:noreply, socket}
+    end
   end
 
   # ── Pure helpers ──────────────────────────────────────────────────────────
@@ -591,8 +705,17 @@ defmodule HospexWeb.Settings.PropertyLive do
             </button>
           </:aside>
 
+          <% photos = Map.get(@data, "photos") || [] %>
+          <% logo_photo  = Enum.find(photos, &(Map.get(&1, "category") == "other" and is_logo_alt?(&1))) %>
+          <% cover_photo = Enum.find(photos, &(Map.get(&1, "hero") == true)) %>
+          <% gallery     = photos -- Enum.reject([logo_photo, cover_photo], &is_nil/1) %>
+          <% upload_progress = case @uploads.photo.entries do
+               [entry | _] -> entry.progress
+               _ -> nil
+             end %>
+
           <Shared.info_banner>
-            <b>Booking.com prefers 24+ photos</b> · You have <b>8 photos</b>.
+            <b>Booking.com prefers 24+ photos</b> · You have <b><%= length(photos) %> photo<%= if length(photos) != 1, do: "s" %></b>.
             Properties with rich galleries see 38% more clicks.
             <:action>
               <button type="button">Learn more</button>
@@ -601,23 +724,35 @@ defmodule HospexWeb.Settings.PropertyLive do
 
           <div class="photo-grid">
             <Shared.photo_slot kind="logo" label="Property logo"
-              hint="PNG or SVG · transparent background" dims="512 × 512" />
+              hint="PNG or SVG · transparent background" dims="512 × 512"
+              category="other"
+              url={logo_photo && Map.get(logo_photo, "url")}
+              progress={upload_progress && @upload_target_kind == "logo" && upload_progress} />
             <Shared.photo_slot kind="cover" label="Cover photo"
               hint="Hero image shown on your booking page and channel listings"
-              dims="2400 × 1350 · 16:9" />
+              dims="2400 × 1350 · 16:9"
+              category="facade"
+              url={cover_photo && Map.get(cover_photo, "url")}
+              progress={upload_progress && @upload_target_kind == "cover" && upload_progress} />
           </div>
 
           <div class="field">
             <label class="field-label">Gallery
-              <span class="opt">· 8 / 24 recommended</span>
+              <span class="opt">· <%= length(gallery) %> / 24 recommended</span>
             </label>
             <div class="gallery-grid">
-              <%= for lbl <- ["Exterior", "Lobby", "Standard room", "Rooftop pool", "Restaurant", "Bathroom"] do %>
-                <Shared.photo_slot label={lbl} />
+              <%= for p <- gallery do %>
+                <Shared.photo_slot label={photo_alt(p)}
+                  category={Map.get(p, "category", "other")}
+                  url={Map.get(p, "url")} />
               <% end %>
-              <Shared.photo_slot label="Add photo" add={true} />
-              <Shared.photo_slot label="Add photo" add={true} />
+              <Shared.photo_slot label="Add photo" add={true} category="lobby"
+                progress={upload_progress && @upload_target_kind == "gallery" && upload_progress} />
             </div>
+
+            <%= for err <- upload_errors(@uploads.photo) do %>
+              <div class="upload-err"><%= error_to_string(err) %></div>
+            <% end %>
           </div>
         </Shared.section_card>
 
@@ -721,12 +856,34 @@ defmodule HospexWeb.Settings.PropertyLive do
 
       </form>
 
+      <%!-- Sibling form for the photo upload. Kept outside the main form
+          because clicking a `.photo-slot` triggers the file picker via
+          the hidden `<.live_file_input>`, and we don't want its
+          `phx-change` to fire `form_change` on the main settings form. --%>
+      <form id="photo-upload-form" phx-change="validate_photo" phx-submit="validate_photo"
+            class="photo-upload-form" style="position:absolute;left:-9999px;top:-9999px">
+        <.live_file_input upload={@uploads.photo} id="photo-input" />
+      </form>
+
       <Shared.saved_flash message={@flash_msg} />
     </Shared.chrome>
     """
   end
 
   defp display_name(data), do: get_in(data, ["name", "en"]) || "your property"
+
+  # The schema doesn't have a "logo" category, so we tag the logo with
+  # alt.en == "Logo" + category="other" to recover it on render.
+  defp is_logo_alt?(photo), do: get_in(photo, ["alt", "en"]) == "Logo"
+
+  defp photo_alt(photo) do
+    get_in(photo, ["alt", "en"]) || Map.get(photo, "category") || "Photo"
+  end
+
+  defp error_to_string(:too_large),       do: "Image is larger than 8 MB."
+  defp error_to_string(:not_accepted),    do: "Only JPG, PNG, and WebP files are accepted."
+  defp error_to_string(:too_many_files),  do: "Upload one photo at a time."
+  defp error_to_string(other),            do: inspect(other)
 
   defp cancel_desc("flexible", days), do: "Free cancellation up to #{days} day#{plural(days)} before arrival."
   defp cancel_desc("moderate", days), do: "Free cancellation up to #{days} days before arrival, then 50% charge."

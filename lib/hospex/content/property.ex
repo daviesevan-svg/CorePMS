@@ -68,6 +68,53 @@ defmodule Hospex.Content.Property do
     end
   end
 
+  # ── Photo helpers ─────────────────────────────────────────────
+  #
+  # Pure map manipulators. They DON'T touch disk — call `save_property/1`
+  # after building the new map. The schema requires every photo entry to
+  # have `url`, `alt` (multilingual_text, ≥1 ISO 639-1 key), and
+  # `category` (enum). Helpers stringify keys to match the rest of the
+  # YAML-roundtripped shape.
+
+  @doc """
+  Append a photo entry to `photos[]`, ensuring the list exists. The
+  caller is responsible for providing all schema-required fields
+  (`url`, `alt`, `category`).
+  """
+  def add_photo(property_map, entry) when is_map(property_map) and is_map(entry) do
+    entry = stringify(entry)
+    photos = Map.get(property_map, "photos") || []
+    Map.put(property_map, "photos", photos ++ [entry])
+  end
+
+  @doc """
+  Remove the first photo entry whose `url` matches. No-op if none match.
+  """
+  def remove_photo(property_map, url) when is_map(property_map) and is_binary(url) do
+    photos = Map.get(property_map, "photos") || []
+    next = Enum.reject(photos, fn p -> Map.get(p, "url") == url end)
+    Map.put(property_map, "photos", next)
+  end
+
+  @doc """
+  Move the photo with the given URL to a new 1-based `order` integer.
+  Other photos with an explicit order are renumbered to keep ordering
+  contiguous; entries without an order are left untouched.
+  """
+  def move_photo(property_map, url, new_order)
+      when is_map(property_map) and is_binary(url) and is_integer(new_order) do
+    photos = Map.get(property_map, "photos") || []
+
+    case Enum.split_with(photos, fn p -> Map.get(p, "url") == url end) do
+      {[target], rest} ->
+        target = Map.put(target, "order", new_order)
+        Map.put(property_map, "photos", rest ++ [target])
+
+      _ ->
+        property_map
+    end
+  end
+
   # ── Room Types ────────────────────────────────────────────────
 
   def list_room_types do

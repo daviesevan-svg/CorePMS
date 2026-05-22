@@ -11,6 +11,11 @@ erl_crash.dump
 /priv/static/assets/
 /priv/static/cache_manifest.json
 
+# Uploaded photos — binaries live in object storage in prod; in dev
+# we write them under priv/static/uploads/ but never commit the blobs.
+/priv/static/uploads/*
+!/priv/static/uploads/.gitkeep
+
 # Node
 /assets/node_modules/
 

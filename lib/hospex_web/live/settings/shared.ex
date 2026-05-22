@@ -647,23 +647,51 @@ defmodule HospexWeb.Settings.Shared do
     """
   end
 
-  # ── Photo slots (visual-only) ──────────────────────────────────
+  # ── Photo slots ────────────────────────────────────────────────
+  #
+  # Two modes:
+  #   - filled  → `url` set; renders <img> + delete `×` button.
+  #   - empty   → no `url`; renders dropzone styling. Clicking pre-sets
+  #               the upload target category (via `phx-click="pick_slot"`)
+  #               then clicks the hidden file input.
+  #
+  # `category` is the schema photo-category enum value (facade, lobby,
+  # garden, …). For the logo and cover we use `"other"` since the schema
+  # has no dedicated logo/cover enum — we treat the first photo with
+  # category=other and `kind=logo`/`cover` as that role visually.
 
-  attr :kind, :string, default: "gallery"
-  attr :label, :string, required: true
-  attr :hint, :string, default: nil
-  attr :dims, :string, default: nil
-  attr :add, :boolean, default: false
+  attr :kind,     :string,  default: "gallery"
+  attr :label,    :string,  required: true
+  attr :hint,     :string,  default: nil
+  attr :dims,     :string,  default: nil
+  attr :add,      :boolean, default: false
+  attr :category, :string,  default: "other"
+  attr :url,      :string,  default: nil
+  attr :progress, :integer, default: nil
 
   def photo_slot(assigns) do
     ~H"""
-    <div class={"photo-slot #{@kind} #{if @add, do: "add"}"}>
-      <%= if @dims do %><span class="dims"><%= @dims %></span><% end %>
-      <span class="ic">
-        <%= if @add do %><.icon name={:plus} /><% else %><.icon name={:image} /><% end %>
-      </span>
-      <span class="lbl"><%= @label %></span>
-      <%= if @hint do %><span class="hint"><%= @hint %></span><% end %>
+    <div class={"photo-slot #{@kind} #{if @add, do: "add"} #{if @url, do: "filled"}"}
+         phx-click={if !@url, do:
+           Phoenix.LiveView.JS.push("pick_slot", value: %{category: @category, kind: @kind})
+           |> Phoenix.LiveView.JS.dispatch("click", to: "#photo-input")}>
+      <%= if @url do %>
+        <img src={@url} alt={@label} class="photo-slot-img" />
+        <button type="button" class="photo-slot-x"
+                phx-click="delete_photo"
+                phx-value-url={@url}
+                aria-label={"Delete #{@label}"}>×</button>
+      <% else %>
+        <%= if @dims do %><span class="dims"><%= @dims %></span><% end %>
+        <span class="ic">
+          <%= if @add do %><.icon name={:plus} /><% else %><.icon name={:image} /><% end %>
+        </span>
+        <span class="lbl"><%= @label %></span>
+        <%= if @hint do %><span class="hint"><%= @hint %></span><% end %>
+      <% end %>
+      <%= if @progress && @progress > 0 && @progress < 100 do %>
+        <div class="photo-slot-progress"><div style={"width: #{@progress}%"}></div></div>
+      <% end %>
     </div>
     """
   end
