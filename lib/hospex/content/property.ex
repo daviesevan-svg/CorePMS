@@ -296,10 +296,19 @@ defmodule Hospex.Content.Property do
     File.write(path, encode(map))
   end
 
-  @doc false
+  @doc """
+  Encode a string-keyed map (as produced by `YamlElixir.read_from_file/1`)
+  back to YAML text.
+
+  Round-trip contract: `YamlElixir.read_from_string(encode(m)) == m` for any
+  map of maps/lists/strings/numbers/bools that came out of the YAML reader.
+  Comments, blank lines, key order within a map, and folded-vs-literal block
+  scalar style are NOT preserved (acceptable losses, see CLAUDE.md).
+  """
   def encode(map) when is_map(map) do
     map
-    |> Enum.sort_by(fn {k, _} -> sort_key(k) end)
+    |> drop_nils()
+    |> sorted_pairs()
     |> Enum.map(fn {k, v} -> encode_kv(to_string(k), v, 0) end)
     |> IO.iodata_to_binary()
   end
@@ -311,89 +320,140 @@ defmodule Hospex.Content.Property do
   defp sort_key("id"),              do: {1, ""}
   defp sort_key(k),                 do: {2, to_string(k)}
 
+  defp sorted_pairs(map) do
+    map
+    |> Enum.sort_by(fn {k, _} -> sort_key(k) end)
+  end
+
+  # Strip keys whose value is `nil` so the parsed-back map has the key
+  # absent (matching the source YAML, where missing keys parse as absent
+  # rather than `nil`). Applied shallowly per map — `encode_kv` recurses.
+  defp drop_nils(map) when is_map(map) do
+    map
+    |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+    |> Map.new()
+  end
+
+  # nil values are dropped entirely (handled by drop_nils at the map level,
+  # but guard here too for safety inside list items).
+  defp encode_kv(_k, nil, _indent), do: []
+
   defp encode_kv(k, v, indent) when is_map(v) and map_size(v) == 0 do
-    [indent_str(indent), encode_scalar_key(k), ": {}\n"]
+    [indent_str(indent), encode_key(k), ": {}\n"]
   end
 
   defp encode_kv(k, v, indent) when is_map(v) do
-    children =
-      v
-      |> Enum.sort_by(fn {ck, _} -> sort_key(ck) end)
-      |> Enum.map(fn {ck, cv} -> encode_kv(to_string(ck), cv, indent + 1) end)
+    case drop_nils(v) do
+      empty when map_size(empty) == 0 ->
+        [indent_str(indent), encode_key(k), ": {}\n"]
 
-    [indent_str(indent), encode_scalar_key(k), ":\n", children]
+      cleaned ->
+        children =
+          cleaned
+          |> sorted_pairs()
+          |> Enum.map(fn {ck, cv} -> encode_kv(to_string(ck), cv, indent + 1) end)
+
+        [indent_str(indent), encode_key(k), ":\n", children]
+    end
   end
 
-  defp encode_kv(k, v, indent) when is_list(v) and v == [] do
-    [indent_str(indent), encode_scalar_key(k), ": []\n"]
+  defp encode_kv(k, [], indent) do
+    [indent_str(indent), encode_key(k), ": []\n"]
   end
 
   defp encode_kv(k, v, indent) when is_list(v) do
-    items =
-      Enum.map(v, fn item -> encode_list_item(item, indent + 1) end)
-
-    [indent_str(indent), encode_scalar_key(k), ":\n", items]
+    items = Enum.map(v, fn item -> encode_list_item(item, indent) end)
+    [indent_str(indent), encode_key(k), ":\n", items]
   end
 
   defp encode_kv(k, v, indent) do
-    [indent_str(indent), encode_scalar_key(k), ": ", encode_scalar(v), "\n"]
+    [indent_str(indent), encode_key(k), ": ", encode_scalar(v), "\n"]
+  end
+
+  # ── List items ────────────────────────────────────────────────
+  #
+  # A list item sits at `indent` (the same indent its parent key was at).
+  # The `- ` marker plus one space gives 2 columns of additional indent
+  # for the item's body, so nested keys on subsequent lines indent by
+  # `indent + 1` (i.e. 2 more spaces).
+
+  defp encode_list_item(item, indent) when is_map(item) and map_size(item) == 0 do
+    [indent_str(indent), "- {}\n"]
   end
 
   defp encode_list_item(item, indent) when is_map(item) do
-    sorted =
-      item
-      |> Enum.sort_by(fn {ck, _} -> sort_key(ck) end)
-
-    case sorted do
+    case drop_nils(item) |> sorted_pairs() do
       [] ->
         [indent_str(indent), "- {}\n"]
 
       [{first_k, first_v} | rest] ->
-        first =
-          case first_v do
-            v when is_map(v) and map_size(v) > 0 ->
-              children =
-                v
-                |> Enum.sort_by(fn {ck, _} -> sort_key(ck) end)
-                |> Enum.map(fn {ck, cv} -> encode_kv(to_string(ck), cv, indent + 2) end)
-              [indent_str(indent), "- ", encode_scalar_key(to_string(first_k)), ":\n", children]
-
-            v when is_list(v) and v != [] ->
-              items = Enum.map(v, fn it -> encode_list_item(it, indent + 2) end)
-              [indent_str(indent), "- ", encode_scalar_key(to_string(first_k)), ":\n", items]
-
-            _ ->
-              [indent_str(indent), "- ", encode_scalar_key(to_string(first_k)), ": ",
-               encode_inline_value(first_v), "\n"]
-          end
+        first_line = encode_first_item_pair(to_string(first_k), first_v, indent)
 
         rest_lines =
           Enum.map(rest, fn {ck, cv} -> encode_kv(to_string(ck), cv, indent + 1) end)
 
-        [first, rest_lines]
+        [first_line, rest_lines]
     end
   end
 
+  defp encode_list_item(item, indent) when is_list(item) and item == [] do
+    [indent_str(indent), "- []\n"]
+  end
+
   defp encode_list_item(item, indent) when is_list(item) do
-    # Nested list: rare in our schemas. Render inline-flow style.
-    [indent_str(indent), "- ", inspect(item), "\n"]
+    # Nested list: render as `-` then indented sub-items on following lines.
+    sub = Enum.map(item, fn it -> encode_list_item(it, indent + 1) end)
+    [indent_str(indent), "-\n", sub]
   end
 
   defp encode_list_item(item, indent) do
     [indent_str(indent), "- ", encode_scalar(item), "\n"]
   end
 
-  defp encode_inline_value(v) when is_map(v) or is_list(v) do
-    # Should not happen — we promote first_v paths above. Fall back to
-    # block style by inserting newline + indented contents would require
-    # context we don't have here, so render JSON-flow.
-    Jason.encode!(v)
+  # First key of a map inside a `- ` list item: needs to share the line
+  # with the dash. If the value is itself a non-empty map or non-empty
+  # list, the value goes on subsequent indented lines.
+  defp encode_first_item_pair(k, v, indent) when is_map(v) and map_size(v) > 0 do
+    case drop_nils(v) do
+      empty when map_size(empty) == 0 ->
+        [indent_str(indent), "- ", encode_key(k), ": {}\n"]
+
+      cleaned ->
+        children =
+          cleaned
+          |> sorted_pairs()
+          |> Enum.map(fn {ck, cv} -> encode_kv(to_string(ck), cv, indent + 2) end)
+
+        [indent_str(indent), "- ", encode_key(k), ":\n", children]
+    end
   end
-  defp encode_inline_value(v), do: encode_scalar(v)
 
-  defp encode_scalar_key(k), do: k
+  defp encode_first_item_pair(k, [], indent) do
+    [indent_str(indent), "- ", encode_key(k), ": []\n"]
+  end
 
-  defp encode_scalar(nil),                          do: "null"
+  defp encode_first_item_pair(k, v, indent) when is_list(v) do
+    items = Enum.map(v, fn it -> encode_list_item(it, indent + 2) end)
+    [indent_str(indent), "- ", encode_key(k), ":\n", items]
+  end
+
+  defp encode_first_item_pair(k, nil, indent) do
+    # Can't drop the key entirely here — we'd leave a bare `- ` line which
+    # is a different shape. Emit explicit null so reparse round-trips.
+    [indent_str(indent), "- ", encode_key(k), ": null\n"]
+  end
+
+  defp encode_first_item_pair(k, v, indent) do
+    [indent_str(indent), "- ", encode_key(k), ": ", encode_scalar(v), "\n"]
+  end
+
+  # Keys are simple identifiers in every example schema; quote if they
+  # look like a YAML special.
+  defp encode_key(k) do
+    s = to_string(k)
+    if needs_quoting?(s), do: ~s("#{escape(s)}"), else: s
+  end
+
   defp encode_scalar(true),                         do: "true"
   defp encode_scalar(false),                        do: "false"
   defp encode_scalar(v) when is_integer(v),         do: Integer.to_string(v)
@@ -401,14 +461,14 @@ defmodule Hospex.Content.Property do
   defp encode_scalar(v) when is_atom(v),            do: encode_string(Atom.to_string(v))
   defp encode_scalar(v) when is_binary(v),          do: encode_string(v)
 
-  # YAML strings need quoting if they could be misinterpreted as a
-  # number/bool/null, contain special chars, or have leading/trailing
-  # whitespace. Otherwise plain style is fine.
+  # YAML strings: plain style when safe, double-quoted otherwise, literal
+  # block scalar (`|`) when they contain newlines.
+  defp encode_string(""), do: ~s("")
   defp encode_string(s) do
     cond do
-      s == "" -> ~s("")
-      needs_quoting?(s) -> ~s("#{escape(s)}")
-      true -> s
+      String.contains?(s, "\n") -> ~s("#{escape(s)}")
+      needs_quoting?(s)         -> ~s("#{escape(s)}")
+      true                      -> s
     end
   end
 
@@ -420,7 +480,7 @@ defmodule Hospex.Content.Property do
       String.match?(s, ~r/^\d{4}-\d{2}-\d{2}/)                    -> true
       String.match?(s, ~r/^\d{1,2}:\d{2}/)                        -> true
       String.match?(s, ~r/[:#\[\]\{\}&\*!\|>'"%@`]/)              -> true
-      String.match?(s, ~r/^[\s\-\?]/)                             -> true
+      String.match?(s, ~r/^[\s\-\?,]/)                            -> true
       String.match?(s, ~r/\s$/)                                   -> true
       String.contains?(s, "\n")                                   -> true
       true -> false
@@ -432,6 +492,7 @@ defmodule Hospex.Content.Property do
     |> String.replace("\\", "\\\\")
     |> String.replace("\"", "\\\"")
     |> String.replace("\n", "\\n")
+    |> String.replace("\t", "\\t")
   end
 
   defp indent_str(0), do: ""
