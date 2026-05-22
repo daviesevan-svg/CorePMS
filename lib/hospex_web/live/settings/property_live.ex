@@ -201,9 +201,6 @@ defmodule HospexWeb.Settings.PropertyLive do
       unsaved_count: diff_count(socket.assigns.original_form, form))
   end
 
-  # Exposed to render so we can compute on the fly
-  defp unsaved_count(assigns), do: diff_count(assigns.original_form, assigns.form)
-
   # ── Events ────────────────────────────────────────────────────────────────
 
   @impl true
