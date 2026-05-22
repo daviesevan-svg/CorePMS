@@ -451,6 +451,7 @@ defmodule HospexWeb.Settings.PropertyLive do
     |> Map.put("currency", f["currency"])
     |> Map.put("timezone", f["timezone"])
     |> maybe_put_list("languages", f["languages"])
+    |> Map.put("amenities", f["amenities"] || [])
     |> put_path(["check_in", "from"], f["check_in_from"])
     |> put_path(["check_out", "by"], f["check_out_by"])
   end
