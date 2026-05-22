@@ -29,6 +29,10 @@
       "type": "integer",
       "description": "Floor number. 0 = ground floor. Negative values for basement levels."
     },
+    "section": {
+      "type": "string",
+      "description": "Free-form grouping label for this room, e.g. 'West Wing', 'Pool House', 'Garden Annexe'. When set, takes precedence over `floor` for grouping in the UI. Leave empty/unset to group by floor."
+    },
     "view": {
       "type": "string",
       "enum": [
