@@ -674,7 +674,7 @@ defmodule HospexWeb.Settings.Shared do
     <div class={"photo-slot #{@kind} #{if @add, do: "add"} #{if @url, do: "filled"}"}
          phx-click={if !@url, do:
            Phoenix.LiveView.JS.push("pick_slot", value: %{category: @category, kind: @kind})
-           |> Phoenix.LiveView.JS.dispatch("click", to: "#photo-input")}>
+           |> Phoenix.LiveView.JS.dispatch("click", to: ".photo-input")}>
       <%= if @url do %>
         <img src={@url} alt={@label} class="photo-slot-img" />
         <button type="button" class="photo-slot-x"

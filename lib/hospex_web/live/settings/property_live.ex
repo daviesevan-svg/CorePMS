@@ -862,7 +862,7 @@ defmodule HospexWeb.Settings.PropertyLive do
           `phx-change` to fire `form_change` on the main settings form. --%>
       <form id="photo-upload-form" phx-change="validate_photo" phx-submit="validate_photo"
             class="photo-upload-form" style="position:absolute;left:-9999px;top:-9999px">
-        <.live_file_input upload={@uploads.photo} id="photo-input" />
+        <.live_file_input upload={@uploads.photo} class="photo-input" />
       </form>
 
       <Shared.saved_flash message={@flash_msg} />
