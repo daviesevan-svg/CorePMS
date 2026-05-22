@@ -71,7 +71,10 @@ defmodule Hospex.MixProject do
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
       "assets.setup": ["cmd --cd assets npm install"],
-      "assets.build": ["cmd --cd assets node node_modules/esbuild/bin/esbuild js/app.js --bundle --target=es2017 --outdir=../priv/static/assets"]
+      "assets.build": [
+        "cmd --cd assets node_modules/.bin/esbuild js/app.js --bundle --target=es2017 --outdir=../priv/static/assets",
+        "cmd --cd assets node_modules/.bin/esbuild css/app.css --bundle --outdir=../priv/static/assets --loader:.css=css"
+      ]
     ]
   end
 end

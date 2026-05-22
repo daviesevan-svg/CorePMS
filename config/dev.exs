@@ -15,7 +15,23 @@ config :hospex, HospexWeb.Endpoint,
   code_reloader: true,
   debug_errors: true,
   secret_key_base: "dev_only_secret_key_base_at_least_64_bytes_long_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
-  watchers: [],
+  watchers: [
+    esbuild_js: [
+      "node_modules/.bin/esbuild", "js/app.js",
+      "--bundle", "--target=es2017",
+      "--outdir=../priv/static/assets",
+      "--watch",
+      cd: Path.expand("../assets", __DIR__)
+    ],
+    esbuild_css: [
+      "node_modules/.bin/esbuild", "css/app.css",
+      "--bundle",
+      "--outdir=../priv/static/assets",
+      "--loader:.css=css",
+      "--watch",
+      cd: Path.expand("../assets", __DIR__)
+    ]
+  ],
   live_reload: [
     patterns: [
       ~r"priv/static/(?!uploads/).*(js|css|png|jpeg|jpg|gif|svg)$",
