@@ -412,6 +412,62 @@ Hooks.AutoDismiss = {
   }
 }
 
+// Scroll-spy + smooth-jump for the Settings property page. Mounted on the
+// scrollable body (`#set-scroll`). Watches `.set-sect[id]` children and
+// updates `[data-active]` on the matching `.set-subnav a` and `.set-rail-sub`
+// elements. Clicking any of those targets smoothly scrolls to the section.
+// Offset is read from `data-offset` (default 80, matches the sticky chrome).
+Hooks.SettingsScrollSpy = {
+  mounted() {
+    this.offset = parseInt(this.el.dataset.offset || "80", 10)
+    this.scroller = this.el
+    this.refresh()
+
+    this.onScroll = () => this.update()
+    this.scroller.addEventListener("scroll", this.onScroll, { passive: true })
+
+    this.onClick = (e) => {
+      const a = e.target.closest("[data-anchor]")
+      if (!a) return
+      const id = a.dataset.anchor
+      const el = document.getElementById(id)
+      if (!el || !this.scroller.contains(el)) return
+      e.preventDefault()
+      const top = el.offsetTop - 16
+      this.scroller.scrollTo({ top, behavior: "smooth" })
+      this.setActive(id)
+    }
+    document.addEventListener("click", this.onClick)
+
+    // Initial spy
+    requestAnimationFrame(() => this.update())
+  },
+  updated() { this.refresh() },
+  destroyed() {
+    this.scroller.removeEventListener("scroll", this.onScroll)
+    document.removeEventListener("click", this.onClick)
+  },
+  refresh() {
+    this.sections = Array.from(this.el.querySelectorAll(".set-sect[id]"))
+  },
+  update() {
+    if (!this.sections || !this.sections.length) return
+    const top = this.scroller.scrollTop
+    let current = this.sections[0].id
+    for (const s of this.sections) {
+      if (s.offsetTop - this.offset <= top) current = s.id
+    }
+    this.setActive(current)
+  },
+  setActive(id) {
+    document.querySelectorAll(".set-subnav a[data-anchor], .set-rail-sub[data-anchor]")
+      .forEach(el => {
+        if (el.dataset.anchor === id) el.setAttribute("data-active", "1")
+        else el.removeAttribute("data-active")
+      })
+  }
+}
+
 // Syncs the sidebar's vertical scroll back to the grid so both stay in step
 // when the user scrolls the room list.
 Hooks.SidebarScroll = {

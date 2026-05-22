@@ -158,13 +158,13 @@ defmodule HospexWeb.Settings.RoomTypesLive do
   def render(assigns) do
     ~H"""
     <Shared.chrome
-      active={:room_types}
-      rail_items={rail_items(@types)}
-      crumbs={["Settings", "Room Types"]}
+      active={:rooms_and_rates}
+      sections={subnav_items(@types)}
+      sub_anchors={rail_items(@types)}
+      crumbs={["Settings", "Rooms & Rates", "Room Types"]}
       page_title="Room Types"
       page_sub={"#{length(@types)} room types defined — categories of rooms you sell with shared occupancy, beds, and amenities."}
       status={if @editing, do: "Editing", else: nil}
-      subnav={subnav_items(@types)}
       unsaved_count={@unsaved_count}
       form_id="room-type-form">
 

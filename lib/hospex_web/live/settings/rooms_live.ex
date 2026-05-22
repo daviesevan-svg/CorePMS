@@ -150,13 +150,13 @@ defmodule HospexWeb.Settings.RoomsLive do
   def render(assigns) do
     ~H"""
     <Shared.chrome
-      active={:rooms}
-      rail_items={rail_items(@floors)}
-      crumbs={["Settings", "Rooms"]}
+      active={:rooms_and_rates}
+      sections={subnav_items(@floors)}
+      sub_anchors={rail_items(@floors)}
+      crumbs={["Settings", "Rooms & Rates", "Rooms"]}
       page_title="Rooms"
       page_sub={"#{length(@rooms)} rooms across #{length(@floors)} floors — physical units guests book."}
       status={if @editing, do: "Editing", else: nil}
-      subnav={subnav_items(@floors)}
       unsaved_count={@unsaved_count}
       form_id="room-form">
 
