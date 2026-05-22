@@ -298,7 +298,7 @@ defmodule HospexWeb.Settings.PropertyLive do
       {:ok, fresh} ->
         fresh_form = data_to_form(fresh)
         {:noreply, assign(socket, data: fresh, form: fresh_form, original_form: fresh_form,
-                          errors: [], flash_msg: "Property saved")}
+                          unsaved_count: 0, errors: [], flash_msg: "Property saved")}
 
       {:error, errs} when is_list(errs) ->
         {:noreply, assign(socket, data: patched, form: form, errors: errs, flash_msg: nil)}
@@ -506,7 +506,7 @@ defmodule HospexWeb.Settings.PropertyLive do
       |> assign(:langs, @langs)
       |> assign(:amenities, @amenities)
       |> assign(:sections, @sections)
-      |> assign(:unsaved_count, unsaved_count(assigns))
+      |> assign(:unsaved_count, diff_count(assigns.original_form, assigns.form))
 
     ~H"""
     <Shared.chrome
