@@ -145,14 +145,32 @@ defmodule Hospex.Bookings do
       |> Repo.one()
       |> to_integer()
 
-    # In-house room count: distinct rooms with a stay where today ∈
-    # [check_in, check_out). Scoped to room_ids that actually exist in the
-    # property YAML — stale seeded stays referencing rooms that have since
-    # been removed shouldn't inflate the occupancy denominator (or push
-    # it over 100%).
+    # Rooms-sold tonight: count of stays active where today ∈
+    # [check_in, check_out). Scoped to room_ids that exist in the
+    # property YAML so stale seeded stays don't pollute the number.
+    #
+    # Counts stays, not distinct rooms — overbookings (two stays in the
+    # same room on the same night) intentionally push the rate above
+    # 100%, which is the signal staff actually want to see ("we sold
+    # more than we have"). For the visible "rooms occupied" piece, we
+    # cap the denominator-style count at total_rooms.
     yaml_room_ids =
       groups |> Enum.flat_map(& &1.rooms) |> Enum.map(& &1.id)
 
+    # sold_count: total stays active tonight — drives occ_rate so
+    # overbookings push it above 100% (real signal for staff).
+    sold_count =
+      from(s in Stay,
+        where: s.check_in <= ^today and
+               fragment("(? + (? * INTERVAL '1 day'))::date > ?", s.check_in, s.nights, ^today)
+               and s.status != "hold"
+               and s.room_id in ^yaml_room_ids,
+        select: count(s.id)
+      )
+      |> Repo.one()
+
+    # occupied_count: distinct rooms with ≥1 active stay — for the
+    # parenthesized "(X/Y)" display that should never exceed Y.
     occupied_count =
       from(s in Stay,
         where: s.check_in <= ^today and
@@ -163,17 +181,14 @@ defmodule Hospex.Bookings do
       )
       |> Repo.one()
 
-    occ_rate =
-      cond do
-        total_rooms <= 0 -> 0
-        true -> min(100, round(occupied_count / total_rooms * 100))
-      end
+    occ_rate = if total_rooms > 0, do: round((sold_count || 0) / total_rooms * 100), else: 0
 
     %{
       check_ins:      check_ins || 0,
       check_outs:     check_outs || 0,
       due:            due,
       occupied_count: occupied_count || 0,
+      sold_count:     sold_count || 0,
       occ_rate:       occ_rate,
       total_rooms:    total_rooms
     }

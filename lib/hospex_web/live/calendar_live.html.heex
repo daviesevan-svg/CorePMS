@@ -319,8 +319,11 @@
     </div>
     <div class="footer-right">
       <div class="stat">
-        Occupancy tonight <b><%= @stats.occ_rate %>%</b>
-        <span style="color:var(--ink-4)">(<%= @stats.occupied_count %>/<%= @stats.total_rooms %>)</span>
+        Occupancy tonight
+        <b style={if @stats.occ_rate > 100, do: "color:var(--unpaid-ink)"}><%= @stats.occ_rate %>%</b>
+        <span style="color:var(--ink-4)">
+          (<%= @stats.occupied_count %>/<%= @stats.total_rooms %><%= if @stats.sold_count > @stats.total_rooms do %>, <span style="color:var(--unpaid-ink)"><%= @stats.sold_count - @stats.occupied_count %> overbooked</span><% end %>)
+        </span>
       </div>
       <div class="stat">Check-ins today <b><%= @stats.check_ins %></b></div>
       <div class="stat">Check-outs today <b><%= @stats.check_outs %></b></div>
