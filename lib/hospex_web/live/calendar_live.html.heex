@@ -73,43 +73,47 @@
     <div class="toolbar-spacer"></div>
 
     <%!-- Room-type filter chip (native select sits invisibly on top) --%>
-    <label class="filter-chip" data-active={if @filter_room_type, do: "1", else: "0"}>
-      <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 3.5h12M4 8h8M6 12.5h4"/></svg>
-      <%= case @filter_room_type do
-            nil -> "All rooms"
-            id  -> (Enum.find(@room_groups, &(&1.id == id)) || %{name: "—"}).name
-          end %>
-      <select class="chip-native" name="id" phx-change="set_filter_room_type">
-        <option value="" selected={is_nil(@filter_room_type)}>All rooms</option>
-        <%= for g <- @room_groups do %>
-          <option value={g.id} selected={@filter_room_type == g.id}><%= g.name %></option>
-        <% end %>
-      </select>
-    </label>
+    <form phx-change="set_filter_room_type" style="display:contents">
+      <label class="filter-chip" data-active={if @filter_room_type, do: "1", else: "0"}>
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M2 3.5h12M4 8h8M6 12.5h4"/></svg>
+        <%= case @filter_room_type do
+              nil -> "All rooms"
+              id  -> (Enum.find(@room_groups, &(&1.id == id)) || %{name: "—"}).name
+            end %>
+        <select class="chip-native" name="id">
+          <option value="" selected={is_nil(@filter_room_type)}>All rooms</option>
+          <%= for g <- @room_groups do %>
+            <option value={g.id} selected={@filter_room_type == g.id}><%= g.name %></option>
+          <% end %>
+        </select>
+      </label>
+    </form>
 
     <%!-- Status filter chip --%>
-    <label class="filter-chip" data-active={if @filter_status, do: "1", else: "0"}>
-      Status: <%= case @filter_status do
-                    nil       -> "All"
-                    :paid     -> "Paid"
-                    :partial  -> "Partial"
-                    :unpaid   -> "Unpaid"
-                    :in       -> "In-house"
-                    :hold     -> "Hold"
-                    :cancelled -> "Cancelled"
-                    other     -> to_string(other)
-                  end %>
-      <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6 8 10.5 12.5 6"/></svg>
-      <select class="chip-native" name="status" phx-change="set_filter_status">
-        <option value="" selected={is_nil(@filter_status)}>All</option>
-        <option value="paid"      selected={@filter_status == :paid}>Paid</option>
-        <option value="partial"   selected={@filter_status == :partial}>Partial</option>
-        <option value="unpaid"    selected={@filter_status == :unpaid}>Unpaid</option>
-        <option value="in"        selected={@filter_status == :in}>In-house</option>
-        <option value="hold"      selected={@filter_status == :hold}>Hold</option>
-        <option value="cancelled" selected={@filter_status == :cancelled}>Cancelled</option>
-      </select>
-    </label>
+    <form phx-change="set_filter_status" style="display:contents">
+      <label class="filter-chip" data-active={if @filter_status, do: "1", else: "0"}>
+        Status: <%= case @filter_status do
+                      nil       -> "All"
+                      :paid     -> "Paid"
+                      :partial  -> "Partial"
+                      :unpaid   -> "Unpaid"
+                      :in       -> "In-house"
+                      :hold     -> "Hold"
+                      :cancelled -> "Cancelled"
+                      other     -> to_string(other)
+                    end %>
+        <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6 8 10.5 12.5 6"/></svg>
+        <select class="chip-native" name="status">
+          <option value="" selected={is_nil(@filter_status)}>All</option>
+          <option value="paid"      selected={@filter_status == :paid}>Paid</option>
+          <option value="partial"   selected={@filter_status == :partial}>Partial</option>
+          <option value="unpaid"    selected={@filter_status == :unpaid}>Unpaid</option>
+          <option value="in"        selected={@filter_status == :in}>In-house</option>
+          <option value="hold"      selected={@filter_status == :hold}>Hold</option>
+          <option value="cancelled" selected={@filter_status == :cancelled}>Cancelled</option>
+        </select>
+      </label>
+    </form>
 
     <div class="search">
       <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="4"/><path d="m10 10 3 3"/></svg>
