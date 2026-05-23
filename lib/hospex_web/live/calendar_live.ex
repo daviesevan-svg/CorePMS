@@ -72,7 +72,20 @@ defmodule HospexWeb.CalendarLive do
   end
 
   def handle_event("toggle_group", %{"id" => id}, socket) do
-    collapsed = Map.update(socket.assigns.collapsed, id, true, &(!&1))
+    was_collapsed = Map.get(socket.assigns.collapsed, id, false)
+    collapsed = Map.put(socket.assigns.collapsed, id, !was_collapsed)
+    # Manually expanding a group while a room-type filter is active should
+    # clear that filter — the user is overriding the auto-collapse the
+    # filter applied. Collapsing has no effect on the filter.
+    socket =
+      if was_collapsed and socket.assigns.filter_room_type do
+        socket
+        |> assign(:filter_room_type, nil)
+        |> derive_view()
+      else
+        socket
+      end
+
     {:noreply, assign(socket, :collapsed, collapsed)}
   end
 
@@ -789,7 +802,26 @@ defmodule HospexWeb.CalendarLive do
 
   def handle_event("set_filter_room_type", %{"id" => id}, socket) do
     value = if id == "", do: nil, else: id
-    {:noreply, socket |> assign(:filter_room_type, value) |> derive_view()}
+
+    # Filter doubles as a quick-focus: collapse every room type except the
+    # selected one. "All rooms" (nil) expands every group. The collapsed
+    # map is keyed by room-type id (matches group.id in room_groups).
+    collapsed =
+      case value do
+        nil ->
+          %{}
+
+        selected_id ->
+          socket.assigns.room_groups
+          |> Enum.map(fn g -> {g.id, g.id != selected_id} end)
+          |> Map.new()
+      end
+
+    {:noreply,
+     socket
+     |> assign(:filter_room_type, value)
+     |> assign(:collapsed, collapsed)
+     |> derive_view()}
   end
 
   def handle_event("set_filter_status", %{"status" => s}, socket) do
