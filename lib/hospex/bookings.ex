@@ -119,9 +119,18 @@ defmodule Hospex.Bookings do
     groups = room_groups || Property.room_groups()
     total_rooms = groups |> Enum.flat_map(& &1.rooms) |> length()
 
+    # All stay-level counts (check-ins, check-outs, occupancy) are scoped
+    # to room_ids that actually exist in the property YAML — stays
+    # referencing rooms that have since been removed shouldn't inflate
+    # any of these numbers. The calendar already silently skips them
+    # at render time.
+    yaml_room_ids =
+      groups |> Enum.flat_map(& &1.rooms) |> Enum.map(& &1.id)
+
     check_ins =
       from(s in Stay,
-        where: s.check_in == ^today and s.status != "hold",
+        where: s.check_in == ^today and s.status != "hold"
+               and s.room_id in ^yaml_room_ids,
         select: count(s.id)
       )
       |> Repo.one()
@@ -129,7 +138,8 @@ defmodule Hospex.Bookings do
     check_outs =
       from(s in Stay,
         where: fragment("(? + (? * INTERVAL '1 day'))::date = ?", s.check_in, s.nights, ^today)
-               and s.status != "hold",
+               and s.status != "hold"
+               and s.room_id in ^yaml_room_ids,
         select: count(s.id)
       )
       |> Repo.one()
@@ -154,8 +164,6 @@ defmodule Hospex.Bookings do
     # 100%, which is the signal staff actually want to see ("we sold
     # more than we have"). For the visible "rooms occupied" piece, we
     # cap the denominator-style count at total_rooms.
-    yaml_room_ids =
-      groups |> Enum.flat_map(& &1.rooms) |> Enum.map(& &1.id)
 
     # sold_count: total stays active tonight — drives occ_rate so
     # overbookings push it above 100% (real signal for staff).
