@@ -1421,15 +1421,6 @@
                   <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5 13.5 4 5 12.5 2.5 13.5 3.5 11Z"/></svg>
                   Edit booking
                 </button>
-                <button class="more-item" phx-click="close_more_menu" data-stub="1">
-                  <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 4.5h11v8h-11Z"/><path d="m2.5 5 5.5 4 5.5-4"/></svg>
-                  Resend confirmation
-                </button>
-                <button class="more-item" phx-click="close_more_menu" data-stub="1"
-                        onclick={"navigator.clipboard && navigator.clipboard.writeText('#{b.ref}')"}>
-                  <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2.5" width="9" height="11" rx="1.5"/><path d="M3 4.5v8a1 1 0 0 0 1 1h7"/></svg>
-                  Copy reference (<%= b.ref %>)
-                </button>
                 <div class="more-sep"></div>
                 <button class="more-item danger" phx-click="cancel_booking" data-confirm={"Cancel booking #{b.ref}? This can't be undone."}>
                   <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="5.5"/><path d="m5.5 5.5 5 5M10.5 5.5l-5 5"/></svg>
