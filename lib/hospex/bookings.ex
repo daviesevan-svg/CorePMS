@@ -145,17 +145,29 @@ defmodule Hospex.Bookings do
       |> Repo.one()
       |> to_integer()
 
-    # In-house room count: stays where today ∈ [check_in, check_out).
+    # In-house room count: distinct rooms with a stay where today ∈
+    # [check_in, check_out). Scoped to room_ids that actually exist in the
+    # property YAML — stale seeded stays referencing rooms that have since
+    # been removed shouldn't inflate the occupancy denominator (or push
+    # it over 100%).
+    yaml_room_ids =
+      groups |> Enum.flat_map(& &1.rooms) |> Enum.map(& &1.id)
+
     occupied_count =
       from(s in Stay,
         where: s.check_in <= ^today and
                fragment("(? + (? * INTERVAL '1 day'))::date > ?", s.check_in, s.nights, ^today)
-               and s.status != "hold",
+               and s.status != "hold"
+               and s.room_id in ^yaml_room_ids,
         select: count(s.room_id, :distinct)
       )
       |> Repo.one()
 
-    occ_rate = if total_rooms > 0, do: round(occupied_count / total_rooms * 100), else: 0
+    occ_rate =
+      cond do
+        total_rooms <= 0 -> 0
+        true -> min(100, round(occupied_count / total_rooms * 100))
+      end
 
     %{
       check_ins:      check_ins || 0,
