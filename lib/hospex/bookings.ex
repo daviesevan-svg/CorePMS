@@ -15,8 +15,10 @@ defmodule Hospex.Bookings do
   are still persisted on the booking row.
   """
 
+  import Ecto.Query, only: [from: 2]
+
   alias Hospex.Repo
-  alias Hospex.Bookings.{Store, BookingEvent, BookingTransaction}
+  alias Hospex.Bookings.{Store, Booking, Stay, BookingEvent, BookingTransaction}
   alias Hospex.Content.Property
 
   @pubsub_topic "bookings"
@@ -85,11 +87,89 @@ defmodule Hospex.Bookings do
   unchanged.
   """
   def load_calendar do
+    load_calendar(Date.utc_today(), 14)
+  end
+
+  @doc """
+  Windowed calendar load: returns the same `{room_groups, bookings,
+  stays}` tuple, but only for bookings overlapping
+  `[anchor - buffer_days, anchor + span + buffer_days)`. The buffer
+  gives drag/extend operations some slack before they fall outside the
+  loaded window and trigger a refetch.
+  """
+  def load_calendar(%Date{} = anchor, span, buffer_days \\ 7) when is_integer(span) do
+    range_start = Date.add(anchor, -buffer_days)
+    range_end   = Date.add(anchor, span + buffer_days)
+
     room_groups = Property.room_groups()
-    bookings    = Store.list_bookings()
+    bookings    = Store.list_bookings_in_range(range_start, range_end)
     stays       = Enum.flat_map(bookings, & &1.stays)
     {room_groups, bookings, stays}
   end
+
+  @doc """
+  Compute the calendar header's KPI stats (check-ins today, check-outs
+  today, outstanding balance, occupancy) directly from Postgres so
+  numbers reflect today's truth no matter where the calendar is
+  scrolled. `room_groups` is used only for the occupancy denominator
+  — pass it in when it's already in memory; otherwise it'll be loaded
+  from YAML.
+  """
+  def compute_stats(%Date{} = today, room_groups \\ nil) do
+    groups = room_groups || Property.room_groups()
+    total_rooms = groups |> Enum.flat_map(& &1.rooms) |> length()
+
+    check_ins =
+      from(s in Stay,
+        where: s.check_in == ^today and s.status != "hold",
+        select: count(s.id)
+      )
+      |> Repo.one()
+
+    check_outs =
+      from(s in Stay,
+        where: fragment("(? + (? * INTERVAL '1 day'))::date = ?", s.check_in, s.nights, ^today)
+               and s.status != "hold",
+        select: count(s.id)
+      )
+      |> Repo.one()
+
+    # Outstanding due across every active booking — independent of the
+    # window. A booking is "active" if it isn't cancelled and its
+    # check_out is still in the future (or today).
+    due =
+      from(b in Booking,
+        where: b.check_out >= ^today and b.status != "cancelled",
+        select: coalesce(sum(b.total - b.paid), 0)
+      )
+      |> Repo.one()
+      |> to_integer()
+
+    # In-house room count: stays where today ∈ [check_in, check_out).
+    occupied_count =
+      from(s in Stay,
+        where: s.check_in <= ^today and
+               fragment("(? + (? * INTERVAL '1 day'))::date > ?", s.check_in, s.nights, ^today)
+               and s.status != "hold",
+        select: count(s.room_id, :distinct)
+      )
+      |> Repo.one()
+
+    occ_rate = if total_rooms > 0, do: round(occupied_count / total_rooms * 100), else: 0
+
+    %{
+      check_ins:      check_ins || 0,
+      check_outs:     check_outs || 0,
+      due:            due,
+      occupied_count: occupied_count || 0,
+      occ_rate:       occ_rate,
+      total_rooms:    total_rooms
+    }
+  end
+
+  defp to_integer(%Decimal{} = d), do: Decimal.to_integer(d)
+  defp to_integer(n) when is_integer(n), do: n
+  defp to_integer(nil), do: 0
 
   # ── Writes ───────────────────────────────────────────────────
 

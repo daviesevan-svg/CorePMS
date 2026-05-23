@@ -20,7 +20,7 @@ defmodule HospexWeb.CalendarLive do
       Bookings.subscribe()
       Bookings.subscribe_content()
     end
-    {room_groups, bookings, stays} = Bookings.load_calendar()
+    {room_groups, bookings, stays} = Bookings.load_calendar(anchor, 14)
     all_rooms = Enum.flat_map(room_groups, & &1.rooms)
 
     socket =
@@ -48,27 +48,27 @@ defmodule HospexWeb.CalendarLive do
 
   @impl true
   def handle_event("go_today", _, socket) do
-    {:noreply, socket |> assign(:anchor, Date.add(socket.assigns.today, -3)) |> derive_view()}
+    {:noreply, socket |> assign(:anchor, Date.add(socket.assigns.today, -3)) |> reload_bookings()}
   end
 
   def handle_event("go_prev", _, %{assigns: %{anchor: a, view_span: s}} = socket) do
-    {:noreply, socket |> assign(:anchor, Date.add(a, -s)) |> derive_view()}
+    {:noreply, socket |> assign(:anchor, Date.add(a, -s)) |> reload_bookings()}
   end
 
   def handle_event("go_next", _, %{assigns: %{anchor: a, view_span: s}} = socket) do
-    {:noreply, socket |> assign(:anchor, Date.add(a, s)) |> derive_view()}
+    {:noreply, socket |> assign(:anchor, Date.add(a, s)) |> reload_bookings()}
   end
 
   def handle_event("go_prev_day", _, %{assigns: %{anchor: a}} = socket) do
-    {:noreply, socket |> assign(:anchor, Date.add(a, -1)) |> derive_view()}
+    {:noreply, socket |> assign(:anchor, Date.add(a, -1)) |> reload_bookings()}
   end
 
   def handle_event("go_next_day", _, %{assigns: %{anchor: a}} = socket) do
-    {:noreply, socket |> assign(:anchor, Date.add(a, 1)) |> derive_view()}
+    {:noreply, socket |> assign(:anchor, Date.add(a, 1)) |> reload_bookings()}
   end
 
   def handle_event("set_view", %{"span" => span}, socket) do
-    {:noreply, socket |> assign(:view_span, String.to_integer(span)) |> derive_view()}
+    {:noreply, socket |> assign(:view_span, String.to_integer(span)) |> reload_bookings()}
   end
 
   def handle_event("toggle_group", %{"id" => id}, socket) do
@@ -111,7 +111,7 @@ defmodule HospexWeb.CalendarLive do
         {:noreply,
          socket
          |> assign(anchor: Date.add(date, -3), dp_open: false)
-         |> derive_view()}
+         |> reload_bookings()}
       _ ->
         {:noreply, socket}
     end
@@ -1301,11 +1301,14 @@ defmodule HospexWeb.CalendarLive do
     }
   end
 
-  # Re-fetch all bookings/stays from the DB and re-derive view state.
-  # Called after any write the current LV initiated, and after PubSub
-  # broadcasts from other LVs / processes.
+  # Re-fetch the windowed bookings/stays from the DB and re-derive view
+  # state. Called after any write the current LV initiated, after PubSub
+  # broadcasts from other LVs / processes, and after every event that
+  # changes anchor or view_span (so the window query covers the new
+  # visible range).
   defp reload_bookings(socket) do
-    {_room_groups, bookings, stays} = Bookings.load_calendar()
+    %{anchor: anchor, view_span: span} = socket.assigns
+    {_room_groups, bookings, stays} = Bookings.load_calendar(anchor, span)
 
     socket
     |> assign(all_bookings: bookings, all_stays: stays)
@@ -1610,7 +1613,8 @@ defmodule HospexWeb.CalendarLive do
   def handle_info({:content_changed, _kind, _id}, socket) do
     # Property YAML edited from /settings/* — re-derive room_groups
     # (and re-load stays for symmetry; cheap).
-    {room_groups, bookings, stays} = Bookings.load_calendar()
+    %{anchor: anchor, view_span: span} = socket.assigns
+    {room_groups, bookings, stays} = Bookings.load_calendar(anchor, span)
     all_rooms = Enum.flat_map(room_groups, & &1.rooms)
 
     {:noreply,
@@ -1666,7 +1670,10 @@ defmodule HospexWeb.CalendarLive do
                    |> flag_overbooked()
     by_room      = Enum.group_by(visible, & &1.room_id)
     room_lanes   = room_lane_counts(by_room)
-    stats        = compute_stats(stays, today, room_groups)
+    # Stats need to reflect today's truth regardless of where the
+    # calendar is scrolled, so they go directly to Postgres rather than
+    # reducing over the windowed in-memory stay list.
+    stats        = Bookings.compute_stats(today, room_groups)
 
     assign(socket,
       dates: dates,
@@ -1752,6 +1759,11 @@ defmodule HospexWeb.CalendarLive do
 
   # Search box: matches guest name, booking ref (via parent booking lookup),
   # or room number. Empty query passes everything through.
+  #
+  # NOTE: searches only the windowed (`all_bookings` / `all_stays`) set,
+  # so hits outside `anchor ± buffer ± span` are invisible. Acceptable
+  # for v1 — see CLAUDE.md "Known follow-ups" for the planned DB-backed
+  # search.
   defp apply_search(stays, %{assigns: %{search_query: ""}}), do: stays
   defp apply_search(stays, %{assigns: %{search_query: q, all_bookings: bookings}}) do
     needle = String.downcase(String.trim(q))
@@ -1836,42 +1848,9 @@ defmodule HospexWeb.CalendarLive do
     end)
   end
 
-  # Stats operate on stays (room-nights) but de-duplicate per booking for
-  # money (one due amount per booking, not per stay).
-  defp compute_stats(stays, today, room_groups) do
-    total_rooms = room_groups |> Enum.flat_map(& &1.rooms) |> length()
-
-    base = %{check_ins: 0, check_outs: 0, occupied: MapSet.new(), booking_dues: %{}}
-
-    stats =
-      Enum.reduce(stays, base, fn s, acc ->
-        if s.status == :hold do
-          acc
-        else
-          check_out = Date.add(s.check_in, s.nights)
-          acc
-          |> Map.update!(:check_ins,  &if(s.check_in == today, do: &1 + 1, else: &1))
-          |> Map.update!(:check_outs, &if(check_out  == today, do: &1 + 1, else: &1))
-          |> Map.update!(:booking_dues, &Map.put(&1, s.booking_id, s.total - s.paid))
-          |> Map.update!(:occupied, fn set ->
-            in_house = Date.compare(s.check_in, today) != :gt and
-                       Date.compare(check_out, today) == :gt
-            if in_house, do: MapSet.put(set, s.room_id), else: set
-          end)
-        end
-      end)
-
-    occupied_count = MapSet.size(stats.occupied)
-    occ_rate = if total_rooms > 0, do: round(occupied_count / total_rooms * 100), else: 0
-    due      = stats.booking_dues |> Map.values() |> Enum.sum()
-
-    stats
-    |> Map.put(:due, due)
-    |> Map.put(:occupied_count, occupied_count)
-    |> Map.put(:occ_rate, occ_rate)
-    |> Map.put(:total_rooms, total_rooms)
-    |> Map.delete(:booking_dues)
-  end
+  # NOTE: stats computation moved to `Hospex.Bookings.compute_stats/2`.
+  # The old in-memory reducer assumed `all_stays` contained every stay;
+  # with windowing it doesn't, so we now go directly to Postgres.
 
   # ── Template helpers (called from .heex) ──────────────────────
 

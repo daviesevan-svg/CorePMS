@@ -68,6 +68,7 @@ If you change `config/config.exs`, the Phoenix code reloader returns a 500 with 
 - **Bed-configuration, amenities, photos editors** in Settings — preserved on round-trip but not editable in the UI. Bed configs are required by the room_type schema; new types currently get a hardcoded single `double` bed to satisfy `minItems: 1`.
 - **Hidden coupling on room-type IDs.** `Hospex.Content.MockInventory` had hardcoded keys that crashed when the calendar switched to YAML-derived IDs. Use `Map.get` with a fallback, not `Map.fetch!`, at any boundary that consumes IDs from YAML.
 - **Oban workers** for `git_sync` (push YAML edits to property's GitHub repo) and `media_ingest` (photo uploads to S3) — queues are configured but no worker modules exist.
+- **Search only sees the windowed set.** The calendar now loads bookings whose stays overlap `anchor ± view_span ± 7d buffer` (see `Bookings.load_calendar/2`). The search bar still filters in-memory, so guests/refs outside that window won't match. Fix by hitting Postgres for the search predicate (probably via `Bookings.Store.search/1`).
 
 ## Conventions
 - Money formatted via `format_money/1`; dates via `Calendar.strftime` or local helpers (`format_date_range`, `dow_abbr`, `month_abbr`).

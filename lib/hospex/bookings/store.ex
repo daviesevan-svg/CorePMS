@@ -41,6 +41,32 @@ defmodule Hospex.Bookings.Store do
     |> Enum.sort_by(& &1.check_in, Date)
   end
 
+  @doc """
+  Window-scoped fetch: returns the same shape as `list_bookings/0` but
+  restricted to bookings that have at least one stay overlapping the
+  half-open range `[range_start, range_end)`. Used by the calendar to
+  avoid loading every booking on mount.
+
+  Overlap rule: a stay overlaps when its check-in is strictly before
+  `range_end` and its computed check-out (`check_in + nights`) is
+  strictly after `range_start`.
+  """
+  def list_bookings_in_range(%Date{} = range_start, %Date{} = range_end) do
+    ids_query =
+      from(s in Stay,
+        where: s.check_in < ^range_end and
+               fragment("(? + (? * INTERVAL '1 day'))::date > ?", s.check_in, s.nights, ^range_start),
+        select: s.booking_id,
+        distinct: true
+      )
+
+    from(b in Booking, where: b.id in subquery(ids_query))
+    |> Repo.all()
+    |> Repo.preload(preloads())
+    |> Enum.map(&to_map/1)
+    |> Enum.sort_by(& &1.check_in, Date)
+  end
+
   def get_booking(id) do
     case Repo.get(Booking, id) do
       nil -> nil
