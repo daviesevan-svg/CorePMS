@@ -116,11 +116,11 @@
     </form>
 
     <div class="search">
-      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><circle cx="7" cy="7" r="4"/><path d="m10 10 3 3"/></svg>
+      <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2 3.5h12l-4.5 6v3l-3-1.5v-1.5L2 3.5Z"/></svg>
       <form phx-change="search_change" onsubmit="event.preventDefault()" style="display:contents">
-        <input name="q" value={@search_query} placeholder="Search guest, booking, room…" phx-debounce="200" />
+        <input name="q" value={@search_query} placeholder="Filter guests, bookings, rooms…" title="Filters the bookings currently visible on the calendar." phx-debounce="200" />
       </form>
-      <span class="kbd">⌘K</span>
+      <span class="kbd" title="Focus filter">⌘K</span>
     </div>
 
     <button class="primary-btn" phx-click="open_new_booking">
