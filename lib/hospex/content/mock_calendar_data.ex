@@ -131,82 +131,35 @@ defmodule Hospex.Content.MockCalendarData do
       single("David Park",      "room-102",  3, 2, 2, 0, :ota_collect, 320,  0,    "AB"),
       single("Maya Adler",      "room-102",  7, 3, 1, 0, :partial, 510,  150,  "DR"),
 
-      single("Lucas Ribeiro",   "r103", -3, 2, 2, 0, :paid,    340,  340,  "BC"),
-      single("Henrik Vogel",    "r103",  1, 6, 2, 0, :partial, 1020, 500,  "DR"),
-      single("Iris Larsen",     "r103",  8, 2, 2, 0, :ota_collect, 340,  0,    "EX"),
-
-      single("Tomás Herrera",   "r104", -1, 3, 1, 0, :in,      480,  240,  "AB"),
-      single("Block · Maintenance", "r104", 4, 2, 0, 0, :hold,  0,   0,    "—"),
-      single("Yuki Tanaka",     "r104",  8, 4, 2, 0, :paid,    680,  680,  "BC"),
-
-      single("Riley Cohen",     "r105", -2, 1, 1, 0, :paid,    170,  170,  "EX"),
-      single("Noor Hassan",     "r105",  0, 5, 2, 0, :partial, 850,  400,  "BC"),
-      single("Petra Linden",    "r105",  6, 3, 2, 0, :unpaid,  510,  0,    "DR"),
-
       single("James Whitlock",  "room-201", -3, 4, 2, 0, :in,      920,  460,  "BC"),
       single("Felix Ozuna",     "room-201",  8, 2, 2, 0, :paid,    460,  460,  "EX"),
 
       single("Hannah Müller",   "room-202", -1, 7, 2, 0, :paid,    1610, 1610, "BC"),
       single("Robin Cassidy",   "room-202",  7, 2, 2, 0, :ota_collect, 460,  0,    "AB"),
 
-      single("Léa Beaumont",    "r203", -2, 3, 2, 0, :paid,    690,  690,  "DR"),
-      single("Block · Renovation", "r203", 1, 3, 0, 0, :hold,  0,    0,    "—"),
-      single("Chen Wei",        "r203",  5, 4, 2, 0, :partial, 920,  400,  "BC"),
-
-      single("Out of order",    "r204", -3, 12, 0, 0, :hold,   0,    0,    "—"),
-
       single("Eleanor Whitmore", "room-301", -2, 6, 2, 0, :in,     2100, 1050, "DR"),
       single("Khalid Rashid",    "room-301",  5, 3, 2, 0, :paid,   1050, 1050, "BC"),
 
-      single("Theo Bergstrom",   "r302",  6, 2, 2, 0, :unpaid, 700,  0,    "DR"),
-
-      single("Naomi Greaves",    "r303", -1, 8, 1, 0, :paid,   2800, 2800, "AB"),
-      single("Vince Caputo",     "r303",  9, 2, 2, 0, :unpaid, 700,  0,    "BC"),
-
-      single("Schmidt party",    "r402", -1, 4, 2, 2, :paid,   1040, 1040, "EX"),
-      single("Romero clan",      "r402", 11, 3, 2, 2, :ota_collect, 780,  0,    "AB"),
-
       # ── Multi-room bookings ───────────────────────────────────────
-      # Family of 6 — parents + kids in family room, grandparents in suite
-      %{
-        lead_guest: "The Okonkwo Family",
-        src: "BC", status: :in, total: 4080, paid: 2040,
-        stays: [
-          %{room_id: "r401", guest: "Sade & Femi Okonkwo", adults: 2, kids: 2, offset: -3, nights: 6},
-          %{room_id: "room-301", guest: "Adaeze Okonkwo",      adults: 2, kids: 0, offset: -3, nights: 6}
-        ]
-      },
-
       # Wedding party — three deluxe rooms, same dates
       %{
         lead_guest: "Olivia Brandt",
-        src: "DR", status: :partial, total: 3450, paid: 1725,
+        src: "DR", status: :partial, total: 2300, paid: 1150,
         stays: [
           %{room_id: "room-201", guest: "Olivia & Tom Brandt",  adults: 2, kids: 1, offset: 2, nights: 5},
-          %{room_id: "room-202", guest: "Eric & Mara Brandt",   adults: 2, kids: 0, offset: 2, nights: 5},
-          %{room_id: "r203", guest: "Helena Brandt-Stern",  adults: 2, kids: 0, offset: 2, nights: 5}
+          %{room_id: "room-202", guest: "Eric & Mara Brandt",   adults: 2, kids: 0, offset: 2, nights: 5}
         ]
       },
 
-      # Conference group — junior suite + family room for the Solis-Bauer trip
+      # Family booking — parents and grandparents both want sea-view rooms
       %{
-        lead_guest: "Andrea Solis",
-        src: "EX", status: :partial, total: 2440, paid: 1100,
+        lead_guest: "The Okonkwo Family",
+        src: "BC", status: :in, total: 3360, paid: 1680,
         stays: [
-          %{room_id: "r302", guest: "Andrea Solis",     adults: 2, kids: 1, offset: 0, nights: 4},
-          %{room_id: "r401", guest: "Bauer family",     adults: 2, kids: 3, offset: 5, nights: 4}
+          %{room_id: "room-301", guest: "Adaeze Okonkwo",         adults: 2, kids: 0, offset: -3, nights: 6},
+          %{room_id: "room-102", guest: "Sade & Femi Okonkwo",    adults: 2, kids: 2, offset: -3, nights: 6}
         ]
-      },
-
-      # Couple with adjacent rooms for friends
-      %{
-        lead_guest: "Müller-Akan",
-        src: "BC", status: :partial, total: 2600, paid: 1000,
-        stays: [
-          %{room_id: "r402", guest: "Müller-Akan",      adults: 2, kids: 1, offset: 5, nights: 5},
-          %{room_id: "r302", guest: "Akan cousins",     adults: 2, kids: 0, offset: 5, nights: 5}
-        ]
-      },
+      }
     ]
   end
 
