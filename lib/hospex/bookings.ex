@@ -508,15 +508,16 @@ defmodule Hospex.Bookings do
             nil -> s
             attrs ->
               nights = Date.diff(attrs.check_out, attrs.check_in)
-              %{s |
+              Map.merge(s, %{
                 room_id:    attrs.room_id,
                 guest_name: Map.get(attrs, :guest_name) || booking_attrs.lead_guest,
                 adults:     attrs.adults,
                 kids:       attrs.kids,
                 check_in:   attrs.check_in,
                 nights:     nights,
-                subtotal:   attrs.subtotal
-              }
+                subtotal:   attrs.subtotal,
+                nightly_rates: Map.get(attrs, :nightly_rates, [])
+              })
           end
         end)
 

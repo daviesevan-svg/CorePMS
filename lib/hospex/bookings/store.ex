@@ -246,9 +246,41 @@ defmodule Hospex.Bookings.Store do
       total:      s.total || 0,
       paid:       s.paid || 0,
       subtotal:   s.subtotal || 0,
+      nightly_rates: parse_nightly_rates(s.nightly_rates),
       room_count: room_count
     }
   end
+
+  # Parse stored JSONB rows into atom-keyed maps with Date structs.
+  # Falls back to [] on malformed input — same defensive pattern as safe_atom.
+  defp parse_nightly_rates(rows) when is_list(rows) do
+    rows
+    |> Enum.map(&parse_nightly_row/1)
+    |> Enum.reject(&is_nil/1)
+  rescue
+    _ -> []
+  end
+  defp parse_nightly_rates(_), do: []
+
+  defp parse_nightly_row(%{"date" => d, "amount" => a}) when is_binary(d) do
+    case Date.from_iso8601(d) do
+      {:ok, date} -> %{date: date, amount: amount_to_int(a)}
+      _ -> nil
+    end
+  end
+  defp parse_nightly_row(%{date: %Date{} = d, amount: a}),
+    do: %{date: d, amount: amount_to_int(a)}
+  defp parse_nightly_row(_), do: nil
+
+  defp amount_to_int(a) when is_integer(a), do: a
+  defp amount_to_int(a) when is_float(a), do: trunc(a)
+  defp amount_to_int(a) when is_binary(a) do
+    case Integer.parse(a) do
+      {n, _} -> n
+      _ -> 0
+    end
+  end
+  defp amount_to_int(_), do: 0
 
   defp booking_attrs(m) do
     %{
@@ -289,7 +321,8 @@ defmodule Hospex.Bookings.Store do
       src:        to_str(Map.get(s, :src)),
       total:      Map.get(s, :total, 0),
       paid:       Map.get(s, :paid, 0),
-      subtotal:   Map.get(s, :subtotal, 0)
+      subtotal:   Map.get(s, :subtotal, 0),
+      nightly_rates: serialize_nightly_rates(Map.get(s, :nightly_rates, []))
     }
 
     case Map.get(s, :id) do
@@ -301,6 +334,21 @@ defmodule Hospex.Bookings.Store do
         Map.put(attrs, :id, id)
     end
   end
+
+  # Stored as JSONB array of string-keyed maps for Postgres compatibility.
+  # Accepts either atom-keyed (from LiveView state) or already-string-keyed rows.
+  defp serialize_nightly_rates(rows) when is_list(rows) do
+    Enum.map(rows, &serialize_nightly_row/1)
+  end
+  defp serialize_nightly_rates(_), do: []
+
+  defp serialize_nightly_row(%{date: %Date{} = d, amount: a}),
+    do: %{"date" => Date.to_iso8601(d), "amount" => amount_to_int(a)}
+  defp serialize_nightly_row(%{"date" => d, "amount" => a}) when is_binary(d),
+    do: %{"date" => d, "amount" => amount_to_int(a)}
+  defp serialize_nightly_row(%{date: d, amount: a}) when is_binary(d),
+    do: %{"date" => d, "amount" => amount_to_int(a)}
+  defp serialize_nightly_row(_), do: %{"date" => nil, "amount" => 0}
 
   defp to_str(nil),                do: nil
   defp to_str(atom) when is_atom(atom),    do: Atom.to_string(atom)

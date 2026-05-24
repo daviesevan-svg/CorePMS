@@ -1189,12 +1189,20 @@
           </div>
 
           <div class="nb-fields">
+            <% nightly_active = HospexWeb.CalendarLive.nb_nightly_active?(nb) %>
             <div class="nb-field">
-              <div class="nb-lbl">Rate / night</div>
+              <div class="nb-lbl">
+                Rate / night
+                <%= if nightly_active do %>
+                  <span class="nb-lbl-hint">avg, per-night active</span>
+                <% end %>
+              </div>
               <div class="nb-input-wrap">
                 <span class="ipre">€</span>
                 <input class="nb-input with-icon mono" type="number" name="rate_night"
-                       min="0" step="1" value={nb.rate_night} />
+                       min="0" step="1"
+                       value={if nightly_active, do: HospexWeb.CalendarLive.nb_avg_rate(nb), else: nb.rate_night}
+                       readonly={nightly_active} />
               </div>
             </div>
             <div class="nb-field">
@@ -1219,9 +1227,50 @@
             </div>
           </div>
 
+          <%= if nights > 0 do %>
+            <div class="nb-nightly">
+              <button type="button" class="nb-nightly-toggle"
+                      phx-click="toggle_nightly_expand">
+                <%= if nb.nightly_expanded, do: "Collapse nightly rates", else: "Edit nightly rates" %>
+                <%= if length(Map.get(nb, :nightly_rates, [])) > 0 and not nb.nightly_expanded do %>
+                  <span class="nb-nightly-badge">Custom</span>
+                <% end %>
+              </button>
+
+              <%= if nb.nightly_expanded do %>
+                <% rows = HospexWeb.CalendarLive.nb_nightly_rows(nb, nights) %>
+                <div class="nb-nightly-list">
+                  <%= for {date, amount} <- rows do %>
+                    <% iso = Date.to_iso8601(date) %>
+                    <% weekend = Date.day_of_week(date) in [5, 6] %>
+                    <div class="nb-nightly-row" data-weekend={if weekend, do: "1"}>
+                      <span class="nb-nightly-date"><%= Calendar.strftime(date, "%a %b %-d") %></span>
+                      <div class="nb-input-wrap">
+                        <span class="ipre">€</span>
+                        <input class="nb-input with-icon mono nb-nightly-input"
+                               type="number" min="0" step="1"
+                               value={amount}
+                               phx-blur="set_nightly_rate"
+                               phx-value-date={iso}
+                               name={"nightly_#{iso}"} />
+                      </div>
+                    </div>
+                  <% end %>
+                </div>
+                <button type="button" class="nb-nightly-reset" phx-click="reset_nightly_rates">
+                  Reset to flat rate (€<%= nb.rate_night %>)
+                </button>
+              <% end %>
+            </div>
+          <% end %>
+
           <div class="nb-pricing">
             <div class="nb-pricing-row">
-              <span class="k"><%= nights %> × €<%= nb.rate_night %></span>
+              <%= if nightly_active do %>
+                <span class="k">Avg €<%= HospexWeb.CalendarLive.nb_avg_rate(nb) %>/night × <%= nights %></span>
+              <% else %>
+                <span class="k"><%= nights %> × €<%= nb.rate_night %></span>
+              <% end %>
               <span class="v">€<%= subtotal %></span>
             </div>
             <%= if nb.cleaning_fee > 0 do %>

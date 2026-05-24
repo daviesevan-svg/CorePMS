@@ -250,6 +250,8 @@ defmodule HospexWeb.CalendarLive do
       edit_id:           b.id,
       # New: the specific stay being edited (only set in edit mode).
       edit_stay_id:      stay.id,
+      nightly_rates:     Map.get(stay, :nightly_rates) || [],
+      nightly_expanded:  false,
       add_to_id:         nil,
       # Remember the room the booking was originally in so the UI can
       # label its type "Current room" instead of misleading free counts.
@@ -363,7 +365,7 @@ defmodule HospexWeb.CalendarLive do
       |> maybe_put(params, "country")
       |> maybe_put(params, "channel")
       |> maybe_put(params, "requests")
-      |> maybe_put_money(params, "rate_night", :rate_night)
+      |> maybe_put_rate_night(params, target)
       |> maybe_put_money(params, "cleaning_fee", :cleaning_fee)
       |> maybe_put_money(params, "tax_rate", :tax_rate)
       |> maybe_flag_touched_rate(target)
@@ -372,6 +374,62 @@ defmodule HospexWeb.CalendarLive do
 
     {:noreply, assign(socket, :new_booking, f)}
   end
+
+  def handle_event("toggle_nightly_expand", _, %{assigns: %{new_booking: f}} = socket)
+      when not is_nil(f) do
+    expanded? = not Map.get(f, :nightly_expanded, false)
+    nights = nb_nights(f)
+
+    rates =
+      cond do
+        expanded? and Map.get(f, :nightly_rates, []) == [] and nights > 0 ->
+          # Prefill: one row per night at the current flat rate.
+          for i <- 0..(nights - 1) do
+            %{date: Date.add(f.start_date, i), amount: f.rate_night}
+          end
+
+        true ->
+          Map.get(f, :nightly_rates, [])
+      end
+
+    f = f
+        |> Map.put(:nightly_expanded, expanded?)
+        |> Map.put(:nightly_rates, rates)
+        |> snapshot_current_stay()
+
+    {:noreply, assign(socket, :new_booking, f)}
+  end
+
+  def handle_event("reset_nightly_rates", _, %{assigns: %{new_booking: f}} = socket)
+      when not is_nil(f) do
+    f = f
+        |> Map.put(:nightly_rates, [])
+        |> Map.put(:nightly_expanded, false)
+        |> snapshot_current_stay()
+
+    {:noreply, assign(socket, :new_booking, f)}
+  end
+
+  def handle_event("set_nightly_rate", %{"date" => iso, "value" => v}, %{assigns: %{new_booking: f}} = socket)
+      when not is_nil(f) do
+    with {:ok, date} <- Date.from_iso8601(iso) do
+      amount = to_int(v)
+      rates = Map.get(f, :nightly_rates, [])
+
+      rates =
+        case Enum.find_index(rates, fn r -> r.date == date end) do
+          nil -> [%{date: date, amount: amount} | rates] |> Enum.sort_by(& &1.date, Date)
+          idx -> List.update_at(rates, idx, &Map.put(&1, :amount, amount))
+        end
+
+      f = f |> Map.put(:nightly_rates, rates) |> snapshot_current_stay()
+      {:noreply, assign(socket, :new_booking, f)}
+    else
+      _ -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("set_nightly_rate", _, socket), do: {:noreply, socket}
 
   def handle_event("nb_set_type", %{"id" => type_id}, %{assigns: %{new_booking: f}} = socket)
       when not is_nil(f) do
@@ -1106,6 +1164,8 @@ defmodule HospexWeb.CalendarLive do
       kids:              0,
       edit_id:           nil,
       edit_stay_id:      nil,
+      nightly_rates:     [],
+      nightly_expanded:  false,
       add_to_id:         nil,
       original_room_id:  nil,
       # Multi-room edit: staged per-stay form data so the user can edit
@@ -1116,7 +1176,8 @@ defmodule HospexWeb.CalendarLive do
 
   # Fields on the form that are *per-stay* (rest are booking-level).
   @stay_form_fields ~w(start_date end_date type_id room_id rate_night
-                       room_guest adults kids original_room_id)a
+                       room_guest adults kids original_room_id
+                       nightly_rates nightly_expanded)a
 
   # Persist the form's currently-shown per-stay values into stay_edits
   # so they survive switching to a different stay.
@@ -1147,7 +1208,9 @@ defmodule HospexWeb.CalendarLive do
           room_guest:       (if stay.guest_name == booking.lead_guest, do: "", else: stay.guest_name),
           adults:           stay.adults,
           kids:             stay.kids,
-          original_room_id: stay.room_id
+          original_room_id: stay.room_id,
+          nightly_rates:    Map.get(stay, :nightly_rates) || [],
+          nightly_expanded: false
         })
 
       staged ->
@@ -1172,6 +1235,11 @@ defmodule HospexWeb.CalendarLive do
 
   defp maybe_flag_touched_rate(f, "rate_night"), do: %{f | user_touched_rate: true}
   defp maybe_flag_touched_rate(f, _),            do: f
+
+  # Per-night rates are the source of truth while active — silently ignore
+  # edits to the flat field. The UI also visually disables it.
+  defp maybe_put_rate_night(%{nightly_rates: [_ | _]} = f, _params, "rate_night"), do: f
+  defp maybe_put_rate_night(f, params, _target), do: maybe_put_money(f, params, "rate_night", :rate_night)
 
   defp maybe_put_money(map, params, key, store_key) do
     case Map.fetch(params, key) do
@@ -1232,10 +1300,43 @@ defmodule HospexWeb.CalendarLive do
   defp room_ok?(%{room_id: "auto"}, %{avail: a}), do: a > 0
   defp room_ok?(%{room_id: rid}, %{by_room: br}), do: Map.get(br, rid) == :free
 
-  def nb_subtotal(f),   do: f.rate_night * max(1, Date.diff(f.end_date, f.start_date))
+  def nb_subtotal(f) do
+    case Map.get(f, :nightly_rates, []) do
+      [] -> f.rate_night * max(1, Date.diff(f.end_date, f.start_date))
+      rows -> Enum.sum(Enum.map(rows, & &1.amount))
+    end
+  end
   def nb_tax(f),        do: round((nb_subtotal(f) + f.cleaning_fee) * f.tax_rate / 100)
   def nb_total(f),      do: nb_subtotal(f) + f.cleaning_fee + nb_tax(f)
   def nb_nights(f),     do: max(1, Date.diff(f.end_date, f.start_date))
+
+  @doc """
+  Returns `[{date, amount}, ...]` covering every night of the stay.
+  Pulls from `nightly_rates` where present, falls back to the flat rate.
+  Used by the template to render the per-night expander.
+  """
+  def nb_nightly_rows(f, nights) do
+    by_date =
+      f
+      |> Map.get(:nightly_rates, [])
+      |> Map.new(fn r -> {r.date, r.amount} end)
+
+    for i <- 0..(nights - 1) do
+      d = Date.add(f.start_date, i)
+      {d, Map.get(by_date, d, f.rate_night)}
+    end
+  end
+
+  def nb_avg_rate(f) do
+    case Map.get(f, :nightly_rates, []) do
+      [] -> f.rate_night
+      rows ->
+        n = length(rows)
+        div(Enum.sum(Enum.map(rows, & &1.amount)), max(n, 1))
+    end
+  end
+
+  def nb_nightly_active?(f), do: Map.get(f, :nightly_rates, []) != []
 
   defp add_new_booking(socket, f, nights, room_id) do
     attrs = %{
@@ -1290,6 +1391,15 @@ defmodule HospexWeb.CalendarLive do
         sf.room_id
       end
 
+    # Trim/extend nightly_rates so it covers exactly this stay's nights.
+    nightly = normalize_nightly_rates(Map.get(sf, :nightly_rates, []), sf.start_date, nights)
+
+    subtotal =
+      case nightly do
+        [] -> sf.rate_night * max(nights, 1)
+        rows -> Enum.sum(Enum.map(rows, & &1.amount))
+      end
+
     %{
       room_id:    room_id,
       guest_name: effective_room_guest(%{room_guest: Map.get(sf, :room_guest, ""), lead_name: f.lead_name}),
@@ -1297,8 +1407,41 @@ defmodule HospexWeb.CalendarLive do
       kids:       sf.kids,
       check_in:   sf.start_date,
       check_out:  sf.end_date,
-      subtotal:   sf.rate_night * max(nights, 1)
+      subtotal:   subtotal,
+      nightly_rates: nightly
     }
+  end
+
+  # Constrain nightly_rates to the night-set of [start_date, +nights).
+  # Drops rows outside that range; never invents new ones.
+  defp normalize_nightly_rates([], _start, _nights), do: []
+  defp normalize_nightly_rates(rows, start_date, nights) do
+    valid_dates =
+      0..(nights - 1)
+      |> Enum.map(&Date.add(start_date, &1))
+      |> MapSet.new()
+
+    rows
+    |> Enum.filter(fn r ->
+      case Map.get(r, :date) || Map.get(r, "date") do
+        %Date{} = d -> MapSet.member?(valid_dates, d)
+        s when is_binary(s) ->
+          case Date.from_iso8601(s) do
+            {:ok, d} -> MapSet.member?(valid_dates, d)
+            _ -> false
+          end
+        _ -> false
+      end
+    end)
+    |> Enum.map(&normalize_nightly_row/1)
+    |> Enum.sort_by(& &1.date, Date)
+  end
+
+  defp normalize_nightly_row(%{date: %Date{} = d, amount: a}),
+    do: %{date: d, amount: to_int(a)}
+  defp normalize_nightly_row(%{"date" => d, "amount" => a}) when is_binary(d) do
+    {:ok, date} = Date.from_iso8601(d)
+    %{date: date, amount: to_int(a)}
   end
 
   # Re-fetch the windowed bookings/stays from the DB and re-derive view
