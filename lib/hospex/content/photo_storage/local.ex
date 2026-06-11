@@ -14,32 +14,39 @@ defmodule Hospex.Content.PhotoStorage.Local do
 
   @behaviour Hospex.Content.PhotoStorage
 
+  # Single path component: no separators, no leading dot — so ids can
+  # never traverse out of the uploads dir.
+  @safe_id ~r/^[A-Za-z0-9][A-Za-z0-9_-]*$/
+
   @impl true
   def put(property_id, photo_id, binary, content_type)
       when is_binary(property_id) and is_binary(photo_id) and is_binary(binary) do
-    ext = ext_for(content_type)
-    rel = Path.join(["uploads", property_id, photo_id <> "." <> ext])
-    abs = Path.join(static_dir(), rel)
+    if Regex.match?(@safe_id, property_id) and Regex.match?(@safe_id, photo_id) do
+      ext = ext_for(content_type)
+      rel = Path.join(["uploads", property_id, photo_id <> "." <> ext])
+      abs = Path.join(static_dir(), rel)
 
-    with :ok <- File.mkdir_p(Path.dirname(abs)),
-         :ok <- File.write(abs, binary) do
-      {:ok, public_url("/" <> rel)}
+      with :ok <- File.mkdir_p(Path.dirname(abs)),
+           :ok <- write_atomic(abs, binary) do
+        {:ok, public_url("/" <> rel)}
+      end
+    else
+      {:error, :invalid_id}
     end
   end
 
   @impl true
   def delete(url) when is_binary(url) do
-    case path_from_url(url) do
-      {:ok, "/" <> rel} ->
-        abs = Path.join(static_dir(), rel)
-        case File.rm(abs) do
-          :ok                  -> :ok
-          {:error, :enoent}    -> :ok
-          {:error, _} = err    -> err
-        end
-
-      _ ->
-        :ok
+    with {:ok, "/" <> rel} <- path_from_url(url),
+         {:ok, abs} <- contained_upload_path(rel) do
+      case File.rm(abs) do
+        :ok                  -> :ok
+        {:error, :enoent}    -> :ok
+        {:error, _} = err    -> err
+      end
+    else
+      # Unparseable or out-of-tree URL: nothing of ours to delete.
+      _ -> :ok
     end
   end
 
@@ -79,6 +86,37 @@ defmodule Hospex.Content.PhotoStorage.Local do
     case URI.parse(url) do
       %URI{path: "/uploads/" <> _ = p} -> {:ok, p}
       _                                -> :error
+    end
+  end
+
+  # The URL's path is attacker-controllable and URI.parse doesn't
+  # normalize dot segments, so a "/uploads/" prefix alone doesn't prove
+  # containment — expand the joined path and require it to still sit
+  # under the uploads root.
+  defp contained_upload_path(rel) do
+    uploads_root = Path.expand(Path.join(static_dir(), "uploads"))
+    abs = Path.expand(Path.join(static_dir(), rel))
+
+    if String.starts_with?(abs, uploads_root <> "/") do
+      {:ok, abs}
+    else
+      :error
+    end
+  end
+
+  # Temp file + rename so a crash mid-write can't leave a truncated file.
+  defp write_atomic(path, binary) do
+    tmp = path <> ".tmp.#{System.unique_integer([:positive])}"
+
+    case File.write(tmp, binary) do
+      :ok ->
+        case File.rename(tmp, path) do
+          :ok -> :ok
+          err -> File.rm(tmp); err
+        end
+
+      err ->
+        err
     end
   end
 end

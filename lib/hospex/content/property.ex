@@ -44,6 +44,17 @@ defmodule Hospex.Content.Property do
   defp room_type_file(id),   do: Path.join(room_types_dir(), "#{id}.yaml")
   defp room_file(id),        do: Path.join(rooms_dir(), "#{id}.yaml")
 
+  # Ids arrive from LiveView events (client-controlled) and get
+  # interpolated into file paths — restrict to a single safe path
+  # component before any disk access. Mirrors the JSON-Schema slug
+  # pattern, minus its two-char minimum.
+  @safe_id ~r/^[a-z0-9][a-z0-9_-]*$/
+
+  defp validate_id(id) when is_binary(id) do
+    if Regex.match?(@safe_id, id), do: :ok, else: {:error, :invalid_id}
+  end
+  defp validate_id(_), do: {:error, :invalid_id}
+
   # ── Property ──────────────────────────────────────────────────
 
   def load_property do
@@ -53,19 +64,21 @@ defmodule Hospex.Content.Property do
   def save_property(map) when is_map(map) do
     path = property_file()
 
-    existing =
-      case read_yaml(path) do
-        {:ok, m} -> m
-        _        -> %{}
+    with_file_lock(path, fn ->
+      existing =
+        case read_yaml(path) do
+          {:ok, m} -> m
+          _        -> %{}
+        end
+
+      merged = deep_merge(existing, stringify(map))
+
+      with :ok <- Validator.validate_map(merged, :property, schema_version(merged)),
+           :ok <- write_yaml(path, merged) do
+        broadcast(:property, Map.get(merged, "id"))
+        {:ok, merged}
       end
-
-    merged = deep_merge(existing, stringify(map))
-
-    with :ok <- Validator.validate_map(merged, :property, schema_version(merged)),
-         :ok <- write_yaml(path, merged) do
-      broadcast(:property, Map.get(merged, "id"))
-      {:ok, merged}
-    end
+    end)
   end
 
   # ── Photo helpers ─────────────────────────────────────────────
@@ -122,39 +135,46 @@ defmodule Hospex.Content.Property do
   end
 
   def get_room_type(id) do
-    read_yaml(room_type_file(id))
+    with :ok <- validate_id(id), do: read_yaml(room_type_file(id))
   end
 
   def save_room_type(map) when is_map(map) do
     map = stringify(map)
     id  = Map.fetch!(map, "id")
-    path = room_type_file(id)
 
-    existing =
-      case read_yaml(path) do
-        {:ok, m} -> m
-        _        -> %{}
-      end
+    with :ok <- validate_id(id) do
+      path = room_type_file(id)
 
-    merged = deep_merge(existing, map) |> ensure_room_type_defaults()
+      with_file_lock(path, fn ->
+        existing =
+          case read_yaml(path) do
+            {:ok, m} -> m
+            _        -> %{}
+          end
 
-    with :ok <- Validator.validate_map(merged, :room_type, schema_version(merged)),
-         :ok <- File.mkdir_p(room_types_dir()),
-         :ok <- write_yaml(path, merged) do
-      broadcast(:room_type, id)
-      {:ok, merged}
+        merged = deep_merge(existing, map) |> ensure_room_type_defaults()
+
+        with :ok <- Validator.validate_map(merged, :room_type, schema_version(merged)),
+             :ok <- File.mkdir_p(room_types_dir()),
+             :ok <- write_yaml(path, merged) do
+          broadcast(:room_type, id)
+          {:ok, merged}
+        end
+      end)
     end
   end
 
   def delete_room_type(id) do
-    if Enum.any?(list_rooms(), fn r -> Map.get(r, "room_type_id") == id end) do
-      {:error, :rooms_reference_type}
-    else
-      case File.rm(room_type_file(id)) do
-        :ok ->
-          broadcast(:room_type, id)
-          :ok
-        err -> err
+    with :ok <- validate_id(id) do
+      if Enum.any?(list_rooms(), fn r -> Map.get(r, "room_type_id") == id end) do
+        {:error, :rooms_reference_type}
+      else
+        case File.rm(room_type_file(id)) do
+          :ok ->
+            broadcast(:room_type, id)
+            :ok
+          err -> err
+        end
       end
     end
   end
@@ -166,36 +186,43 @@ defmodule Hospex.Content.Property do
   end
 
   def get_room(id) do
-    read_yaml(room_file(id))
+    with :ok <- validate_id(id), do: read_yaml(room_file(id))
   end
 
   def save_room(map) when is_map(map) do
     map = stringify(map)
     id  = Map.fetch!(map, "id")
-    path = room_file(id)
 
-    existing =
-      case read_yaml(path) do
-        {:ok, m} -> m
-        _        -> %{}
-      end
+    with :ok <- validate_id(id) do
+      path = room_file(id)
 
-    merged = deep_merge(existing, map) |> ensure_room_defaults()
+      with_file_lock(path, fn ->
+        existing =
+          case read_yaml(path) do
+            {:ok, m} -> m
+            _        -> %{}
+          end
 
-    with :ok <- Validator.validate_map(merged, :room, schema_version(merged)),
-         :ok <- File.mkdir_p(rooms_dir()),
-         :ok <- write_yaml(path, merged) do
-      broadcast(:room, id)
-      {:ok, merged}
+        merged = deep_merge(existing, map) |> ensure_room_defaults()
+
+        with :ok <- Validator.validate_map(merged, :room, schema_version(merged)),
+             :ok <- File.mkdir_p(rooms_dir()),
+             :ok <- write_yaml(path, merged) do
+          broadcast(:room, id)
+          {:ok, merged}
+        end
+      end)
     end
   end
 
   def delete_room(id) do
-    case File.rm(room_file(id)) do
-      :ok ->
-        broadcast(:room, id)
-        :ok
-      err -> err
+    with :ok <- validate_id(id) do
+      case File.rm(room_file(id)) do
+        :ok ->
+          broadcast(:room, id)
+          :ok
+        err -> err
+      end
     end
   end
 
@@ -339,8 +366,30 @@ defmodule Hospex.Content.Property do
 
   # ── YAML writer ───────────────────────────────────────────────
 
+  # Temp file + rename: rename within the same directory is atomic, so a
+  # crash / disk-full mid-write can never leave a truncated property file
+  # (this YAML is the source of truth — there's no backup to restore from).
   defp write_yaml(path, map) do
-    File.write(path, encode(map))
+    tmp = path <> ".tmp.#{System.unique_integer([:positive])}"
+
+    case File.write(tmp, encode(map)) do
+      :ok ->
+        case File.rename(tmp, path) do
+          :ok -> :ok
+          err -> File.rm(tmp); err
+        end
+
+      err ->
+        err
+    end
+  end
+
+  # Serialize read-merge-validate-write per file so two concurrent saves
+  # can't both merge against the same stale snapshot and silently drop
+  # each other's fields. (Fields edited by both sides still resolve
+  # last-writer-wins — full conflict detection would need versioning.)
+  defp with_file_lock(path, fun) do
+    :global.trans({{__MODULE__, path}, self()}, fun, [node()])
   end
 
   @doc """

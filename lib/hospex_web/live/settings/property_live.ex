@@ -332,9 +332,18 @@ defmodule HospexWeb.Settings.PropertyLive do
   end
 
   def handle_event("delete_photo", %{"url" => url}, socket) do
+    # The url param is client-controlled and removing a non-existent photo
+    # from the map still saves fine — only delete a binary for a URL that
+    # was actually one of our photos.
+    known_photo? =
+      socket.assigns.data
+      |> Map.get("photos")
+      |> Kernel.||([])
+      |> Enum.any?(fn p -> Map.get(p, "url") == url end)
+
     case Property.save_property(Property.remove_photo(socket.assigns.data, url)) do
       {:ok, fresh} ->
-        _ = PhotoStorage.delete(url)
+        if known_photo?, do: PhotoStorage.delete(url)
         {:noreply,
          assign(socket,
            data: fresh,
