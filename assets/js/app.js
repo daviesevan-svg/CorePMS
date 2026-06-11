@@ -481,6 +481,22 @@ Hooks.SidebarScroll = {
   }
 }
 
+// Persists the calendar zoom level across visits. The server renders the
+// current level into data-level; on mount we push the stored preference
+// back (if it differs), and every server-side change updates storage.
+Hooks.CalZoom = {
+  mounted() {
+    const stored = parseInt(localStorage.getItem("hospex-cal-zoom"), 10)
+    const current = parseInt(this.el.dataset.level, 10)
+    if (stored && stored !== current) {
+      this.pushEvent("set_zoom_level", { level: stored })
+    }
+  },
+  updated() {
+    localStorage.setItem("hospex-cal-zoom", this.el.dataset.level)
+  }
+}
+
 const csrfToken = document.querySelector("meta[name='csrf-token']")?.getAttribute("content")
 const liveSocket = new LiveSocket("/live", Socket, {
   longPollFallbackMs: 2500,

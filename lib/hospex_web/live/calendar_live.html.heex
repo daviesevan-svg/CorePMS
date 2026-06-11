@@ -1,4 +1,4 @@
-<div class="app" style={"--cell-w: #{@cell_w}px; --cell-h: 64px;"}>
+<div class="app" data-density={@density} style={"--cell-w: #{@cell_w}px; --cell-h: #{@cell_h}px;"}>
 
   <%!-- ── Top bar ──────────────────────────────────────────────── --%>
   <div class="topbar">
@@ -32,7 +32,7 @@
       <button class="icon-btn" title="Settings">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2"/><path d="M8 1.5v2M8 12.5v2M14.5 8h-2M3.5 8h-2M12.6 3.4 11.2 4.8M4.8 11.2l-1.4 1.4M12.6 12.6l-1.4-1.4M4.8 4.8 3.4 3.4"/></svg>
       </button>
-      <div class="me-avatar">EM</div>
+      <.link href="/logout" method="delete" data-confirm="Sign out of Hospex?" class="me-avatar" title="Sign out" style="text-decoration:none">EM</.link>
     </div>
   </div>
 
@@ -64,10 +64,18 @@
       </button>
     </div>
 
-    <div class="seg" style="margin-left:4px">
-      <button data-active={if @view_span == 7,  do: "1", else: "0"} phx-click="set_view" phx-value-span="7">Week</button>
-      <button data-active={if @view_span == 14, do: "1", else: "0"} phx-click="set_view" phx-value-span="14">2 weeks</button>
-      <button data-active={if @view_span == 30, do: "1", else: "0"} phx-click="set_view" phx-value-span="30">Month</button>
+    <%!-- Zoom: − shows more (days AND rooms), + shows fewer but bigger.
+         CalZoom persists the chosen level in localStorage. --%>
+    <div class="zoomseg" id="cal-zoom" phx-hook="CalZoom" data-level={@zoom_level}>
+      <button class="zoom-btn" phx-click="zoom" phx-value-dir="out"
+              disabled={@zoom_level == @zoom_max} title="Zoom out — more days & rooms">
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3.5 8h9"/></svg>
+      </button>
+      <span class="zoom-label"><%= @zoom_label %></span>
+      <button class="zoom-btn" phx-click="zoom" phx-value-dir="in"
+              disabled={@zoom_level == 1} title="Zoom in — bigger cells">
+        <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M3.5 8h9M8 3.5v9"/></svg>
+      </button>
     </div>
 
     <div class="toolbar-spacer"></div>
@@ -265,7 +273,7 @@
                               <%= s.room_count %>
                             </span>
                           <% end %>
-                          <%= if s.src != "—" and s.nights_visible >= 2 do %>
+                          <%= if s.src not in [:block, "—"] and s.nights_visible >= 2 do %>
                             <span class="src"><%= s.src %></span>
                           <% end %>
                         </div>
@@ -1698,10 +1706,12 @@
                     <div class="dr-sect-title">Internal notes</div>
                     <span class="dr-sect-hint" style="margin-top:0;font-style:italic">Not shown to guest</span>
                   </div>
-                  <form phx-submit="save_notes" class="dr-notes-form">
+                  <form phx-submit="save_notes" phx-change="notes_change" class="dr-notes-form">
+                    <%!-- Render the staged draft (notes_change fires on blur) so
+                         drawer re-renders can't wipe typed-but-unsaved text. --%>
                     <textarea name="notes" class="dr-notes-input" rows="3"
                               placeholder="Front-desk notes, VIP flags, allergies, prior issues…"
-                              phx-debounce="blur"><%= Map.get(b, :notes) || "" %></textarea>
+                              phx-debounce="blur"><%= @notes_draft || Map.get(b, :notes) || "" %></textarea>
                     <div class="dr-notes-actions">
                       <button type="submit" class="dr-sect-action">Save notes</button>
                     </div>
@@ -1748,10 +1758,18 @@
                 <div class="dr-sect-head"><div class="dr-sect-title">Lead contact</div></div>
                 <div class="dr-fields">
                   <div class="dr-field"><span class="k">Name</span><span class="v"><%= b.lead_guest %></span></div>
-                  <div class="dr-field"><span class="k">Email</span><span class="v"><%= d.email %></span></div>
-                  <div class="dr-field"><span class="k">Phone</span><span class="v mono"><%= d.phone %></span></div>
-                  <div class="dr-field"><span class="k">Country</span><span class="v"><%= d.country_name %> <span class="muted">(<%= d.country_code %>)</span></span></div>
-                  <div class="dr-field"><span class="k">ETA</span><span class="v mono">~ <%= d.arrival_est %></span></div>
+                  <div class="dr-field"><span class="k">Email</span><span class="v"><%= d.email || "—" %></span></div>
+                  <div class="dr-field"><span class="k">Phone</span><span class="v mono"><%= d.phone || "—" %></span></div>
+                  <div class="dr-field"><span class="k">Country</span>
+                    <span class="v">
+                      <%= if d.country_code do %>
+                        <%= d.country_name %> <span class="muted">(<%= d.country_code %>)</span>
+                      <% else %>
+                        —
+                      <% end %>
+                    </span>
+                  </div>
+                  <div class="dr-field"><span class="k">ETA</span><span class="v mono"><%= if d.arrival_est, do: "~ #{d.arrival_est}", else: "—" %></span></div>
                 </div>
               </div>
             <% end %>

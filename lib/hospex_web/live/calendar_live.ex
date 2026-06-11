@@ -11,21 +11,38 @@ defmodule HospexWeb.CalendarLive do
 
   # ── Mount ─────────────────────────────────────────────────────
 
+  # Zoom levels: each step out trades cell size for visible range on BOTH
+  # axes — more days across and more rooms down. The +/− control in the
+  # toolbar walks these; the level is persisted client-side (CalZoom hook).
+  @zoom_levels [
+    %{span: 7,  cell_w: 156, cell_h: 76, label: "Week"},
+    %{span: 14, cell_w: 116, cell_h: 64, label: "2 weeks"},
+    %{span: 21, cell_w: 86,  cell_h: 52, label: "3 weeks"},
+    %{span: 30, cell_w: 64,  cell_h: 42, label: "Month"},
+    %{span: 45, cell_w: 46,  cell_h: 34, label: "6 weeks"}
+  ]
+  @zoom_default 2
+  @zoom_max length(@zoom_levels)
+
+  defp zoom_at(level), do: Enum.at(@zoom_levels, level - 1)
+
   @impl true
   def mount(_params, _session, socket) do
     today  = Date.utc_today()
     anchor = Date.add(today, -3)
+    zoom   = zoom_at(@zoom_default)
 
     if connected?(socket) do
       Bookings.subscribe()
       Bookings.subscribe_content()
     end
-    {room_groups, bookings, stays} = Bookings.load_calendar(anchor, 14)
+    {room_groups, bookings, stays} = Bookings.load_calendar(anchor, zoom.span)
     all_rooms = Enum.flat_map(room_groups, & &1.rooms)
 
     socket =
       socket
-      |> assign(today: today, anchor: anchor, view_span: 14)
+      |> assign(today: today, anchor: anchor,
+                zoom_level: @zoom_default, zoom_max: @zoom_max, view_span: zoom.span)
       |> assign(room_groups: room_groups, all_bookings: bookings, all_stays: stays, all_rooms: all_rooms)
       |> assign(collapsed: %{}, selected_booking: nil, drawer_tab: "details",
                 focused_stay_id: nil, expanded_stays: MapSet.new(),
@@ -37,11 +54,72 @@ defmodule HospexWeb.CalendarLive do
                 # Staged edits inside the block-detail drawer (notes +
                 # auto-release). Cleared whenever a new booking is selected.
                 block_edit: %{},
+                # Unsaved draft of the regular booking's notes textarea —
+                # staged on blur so drawer re-renders can't wipe typing.
+                notes_draft: nil,
                 search_query: "", filter_room_type: nil, filter_status: nil)
       |> assign(dp_open: false, dp_month: Date.beginning_of_month(today))
       |> derive_view()
 
     {:ok, socket}
+  end
+
+  # URL ↔ drawer sync: /calendar?booking=ID is the shareable address of
+  # an open booking drawer. Opening a booking patches the URL; visiting
+  # the URL (or browser back/forward) opens/closes the drawer.
+  @impl true
+  def handle_params(params, _uri, socket) do
+    case params["booking"] do
+      nil ->
+        {:noreply,
+         assign(socket,
+           selected_booking: nil,
+           focused_stay_id: nil,
+           expanded_stays: MapSet.new(),
+           block_edit: %{},
+           notes_draft: nil
+         )}
+
+      id_str ->
+        booking_id = to_int(id_str)
+
+        if match?(%{booking: %{id: ^booking_id}}, socket.assigns.selected_booking) do
+          {:noreply, socket}
+        else
+          {:noreply, open_booking_by_id(socket, booking_id)}
+        end
+    end
+  end
+
+  defp open_booking_by_id(socket, booking_id) do
+    booking =
+      Enum.find(socket.assigns.all_bookings, &(&1.id == booking_id)) ||
+        Bookings.get_booking(booking_id)
+
+    case booking do
+      %{stays: [first_stay | _]} ->
+        socket =
+          if Enum.any?(socket.assigns.all_stays, &(&1.booking_id == booking_id)) do
+            socket
+          else
+            # Outside the loaded window — re-anchor the calendar so the
+            # linked booking is actually on screen.
+            socket
+            |> assign(anchor: Date.add(booking.check_in, -3))
+            |> reload_bookings()
+          end
+
+        # Keep the focused stay only if it belongs to this booking.
+        focused = socket.assigns.focused_stay_id
+
+        stay_id =
+          if Enum.any?(booking.stays, &(&1.id == focused)), do: focused, else: first_stay.id
+
+        do_select_booking(socket, stay_id)
+
+      _ ->
+        assign(socket, :action_flash, "Booking ##{booking_id} not found")
+    end
   end
 
   # ── Events ────────────────────────────────────────────────────
@@ -67,8 +145,27 @@ defmodule HospexWeb.CalendarLive do
     {:noreply, socket |> assign(:anchor, Date.add(a, 1)) |> reload_bookings()}
   end
 
-  def handle_event("set_view", %{"span" => span}, socket) do
-    {:noreply, socket |> assign(:view_span, String.to_integer(span)) |> reload_bookings()}
+  def handle_event("zoom", %{"dir" => dir}, socket) do
+    delta = if dir == "in", do: -1, else: 1
+    set_zoom_level(socket, socket.assigns.zoom_level + delta)
+  end
+
+  # Pushed by the CalZoom hook on mount to restore the user's saved level.
+  def handle_event("set_zoom_level", %{"level" => level}, socket) do
+    set_zoom_level(socket, to_int(level))
+  end
+
+  defp set_zoom_level(socket, level) do
+    level = level |> max(1) |> min(@zoom_max)
+
+    if level == socket.assigns.zoom_level do
+      {:noreply, socket}
+    else
+      {:noreply,
+       socket
+       |> assign(zoom_level: level, view_span: zoom_at(level).span)
+       |> reload_bookings()}
+    end
   end
 
   def handle_event("toggle_group", %{"id" => id}, socket) do
@@ -585,23 +682,35 @@ defmodule HospexWeb.CalendarLive do
       f.amount <= 0 ->
         {:noreply, assign(socket, :action_flash, "Amount must be greater than zero")}
 
+      f.kind not in ~w(payment refund charge) ->
+        {:noreply, assign(socket, :action_flash, "Unknown transaction type")}
+
       true ->
-        :ok =
+        result =
           Bookings.add_transaction(f.booking_id, %{
-            kind:   String.to_atom(f.kind),
+            kind:   String.to_existing_atom(f.kind),
             amount: f.amount,
             method: f.method,
             note:   f.note
           })
 
-        socket =
-          socket
-          |> reload_bookings()
-          |> refresh_selected_booking()
-          |> assign(txn_form: nil,
-                    action_flash: "✓ #{String.capitalize(f.kind)} recorded · #{format_money(f.amount)}")
+        case result do
+          :ok ->
+            socket =
+              socket
+              |> reload_bookings()
+              |> refresh_selected_booking()
+              |> assign(txn_form: nil,
+                        action_flash: "✓ #{String.capitalize(f.kind)} recorded · #{format_money(f.amount)}")
 
-        {:noreply, socket}
+            {:noreply, socket}
+
+          {:error, :refund_exceeds_paid} ->
+            {:noreply, assign(socket, :action_flash, "Refund exceeds the amount paid")}
+
+          {:error, _} ->
+            {:noreply, assign(socket, :action_flash, "Could not record transaction")}
+        end
     end
   end
 
@@ -622,6 +731,7 @@ defmodule HospexWeb.CalendarLive do
       |> assign(selected_booking: nil, focused_stay_id: nil,
                 more_menu_open: false,
                 action_flash: "✓ Booking #{b.ref} cancelled")
+      |> push_patch(to: ~p"/calendar")
 
     {:noreply, socket}
   end
@@ -738,12 +848,17 @@ defmodule HospexWeb.CalendarLive do
 
   def handle_event("save_block_edit", _, socket), do: {:noreply, socket}
 
+  def handle_event("notes_change", %{"notes" => notes}, socket) do
+    {:noreply, assign(socket, :notes_draft, notes)}
+  end
+
   def handle_event("save_notes", %{"notes" => notes},
                    %{assigns: %{selected_booking: %{booking: b}}} = socket) do
     :ok = Bookings.update_notes(b.id, notes)
 
     {:noreply,
      socket
+     |> assign(:notes_draft, nil)
      |> reload_bookings()
      |> refresh_selected_booking()
      |> assign(:action_flash, "✓ Notes saved")}
@@ -759,7 +874,8 @@ defmodule HospexWeb.CalendarLive do
      |> reload_bookings()
      |> assign(selected_booking: nil, focused_stay_id: nil,
                more_menu_open: false,
-               action_flash: "✓ Block #{ref} removed")}
+               action_flash: "✓ Block #{ref} removed")
+     |> push_patch(to: ~p"/calendar")}
   end
 
   def handle_event("delete_block", _, socket), do: {:noreply, socket}
@@ -883,8 +999,7 @@ defmodule HospexWeb.CalendarLive do
   end
 
   def handle_event("set_filter_status", %{"status" => s}, socket) do
-    value = if s == "", do: nil, else: String.to_atom(s)
-    {:noreply, socket |> assign(:filter_status, value) |> derive_view()}
+    {:noreply, socket |> assign(:filter_status, HospexWeb.LiveParams.safe_status(s)) |> derive_view()}
   end
 
   def handle_event("block_cancel", _, socket) do
@@ -1007,66 +1122,24 @@ defmodule HospexWeb.CalendarLive do
   end
 
   def handle_event("select_booking", %{"id" => id_str}, socket) do
-    stay_id = String.to_integer(id_str)
-    stay    = Enum.find(socket.assigns.visible_stays_flat, &(&1.id == stay_id))
-    booking = stay && Enum.find(socket.assigns.all_bookings, &(&1.id == stay.booking_id))
+    socket = do_select_booking(socket, to_int(id_str))
 
-    selected =
-      if booking do
-        today = socket.assigns.today
-        rooms_by_id = Map.new(socket.assigns.all_rooms, &{&1.id, &1})
-        group_by_room =
-          for g <- socket.assigns.room_groups, r <- g.rooms, into: %{}, do: {r.id, g}
-
-        details = BookingDetails.details_for(booking)
-
-        room_rows =
-          for s <- booking.stays do
-            %{
-              stay:      s,
-              room:      Map.get(rooms_by_id, s.room_id),
-              group:     Map.get(group_by_room, s.room_id),
-              check_out: Date.add(s.check_in, s.nights),
-              subtotal:  s.nights * details.rate_per_night
-            }
-          end
-
-        %{
-          booking:    booking,
-          rooms:      room_rows,
-          multi_room: length(booking.stays) > 1,
-          details:    details,
-          txns:       merge_txns(BookingDetails.txns_for(booking, today), booking),
-          events:     real_events(booking, today)
-        }
-      else
-        nil
+    # Keep the URL shareable: /calendar?booking=ID opens this drawer.
+    to =
+      case socket.assigns.selected_booking do
+        %{booking: b} -> ~p"/calendar?booking=#{b.id}"
+        _ -> ~p"/calendar"
       end
 
-    expanded =
-      if selected && selected.multi_room do
-        MapSet.new([stay_id])
-      else
-        # Single-room bookings: expand the sole stay so details are visible.
-        case selected do
-          %{rooms: [only]} -> MapSet.new([only.stay.id])
-          _ -> MapSet.new()
-        end
-      end
-
-    {:noreply,
-     assign(socket,
-       selected_booking: selected,
-       drawer_tab: "details",
-       focused_stay_id: stay_id,
-       expanded_stays: expanded,
-       quick_menu: nil,
-       block_edit: %{}
-     )}
+    {:noreply, push_patch(socket, to: to)}
   end
 
   def handle_event("close_booking", _, socket) do
-    {:noreply, assign(socket, selected_booking: nil, focused_stay_id: nil, expanded_stays: MapSet.new(), block_edit: %{})}
+    {:noreply,
+     socket
+     |> assign(selected_booking: nil, focused_stay_id: nil, expanded_stays: MapSet.new(),
+               block_edit: %{}, notes_draft: nil)
+     |> push_patch(to: ~p"/calendar")}
   end
 
   def handle_event("set_drawer_tab", %{"tab" => tab}, socket)
@@ -1675,8 +1748,10 @@ defmodule HospexWeb.CalendarLive do
   defp icon_for_method("transfer"), do: :card
   defp icon_for_method(_),          do: :card
 
+  defp payment_label(%{note: "Imported balance"}), do: "Payment · imported balance"
   defp payment_label(%{method: "cash"}),     do: "Cash payment"
   defp payment_label(%{method: "transfer"}), do: "Bank transfer"
+  defp payment_label(%{method: nil}),        do: "Payment"
   defp payment_label(%{method: _}),          do: "Card payment"
 
   defp refund_label(%{note: ""}), do: "Refund"
@@ -1733,8 +1808,16 @@ defmodule HospexWeb.CalendarLive do
     end
   end
 
-  defp to_int(""),    do: 0
-  defp to_int(value), do: String.to_integer(value)
+  # Client params — never raise on junk ("1.5", "1e3", crafted messages).
+  defp to_int(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {n, _rest} -> n
+      :error     -> 0
+    end
+  end
+
+  defp to_int(value) when is_integer(value), do: value
+  defp to_int(_), do: 0
 
   defp apply_wizard_payment(socket, %{data: %{skip_payment: true}}), do: socket
   defp apply_wizard_payment(socket, %{stay_id: stay_id, data: %{payment_amount: amt}}) when amt > 0 do
@@ -1780,13 +1863,83 @@ defmodule HospexWeb.CalendarLive do
             # Re-select to recompute drawer-derived state from fresh data.
             handle_select_booking(socket, socket.assigns.focused_stay_id)
           else
-            assign(socket, selected_booking: nil, focused_stay_id: nil)
+            # Deleted elsewhere — close the drawer and clear its URL.
+            socket
+            |> assign(selected_booking: nil, focused_stay_id: nil)
+            |> push_patch(to: ~p"/calendar")
           end
 
         _ -> socket
       end
 
     {:noreply, socket}
+  end
+
+  defp do_select_booking(socket, stay_id) do
+    stay    = Enum.find(socket.assigns.all_stays, &(&1.id == stay_id))
+    booking = stay && Enum.find(socket.assigns.all_bookings, &(&1.id == stay.booking_id))
+
+    # Refreshes re-select the already-open booking (PubSub, post-save).
+    # Those must not clobber in-progress UI state: unsaved note drafts,
+    # staged block edits, the active tab, or expanded rooms.
+    same_booking? =
+      case {booking, socket.assigns.selected_booking} do
+        {%{id: id}, %{booking: %{id: id}}} -> true
+        _ -> false
+      end
+
+    selected =
+      if booking do
+        today = socket.assigns.today
+        rooms_by_id = Map.new(socket.assigns.all_rooms, &{&1.id, &1})
+        group_by_room =
+          for g <- socket.assigns.room_groups, r <- g.rooms, into: %{}, do: {r.id, g}
+
+        details = BookingDetails.details_for(booking)
+
+        room_rows =
+          for s <- booking.stays do
+            %{
+              stay:      s,
+              room:      Map.get(rooms_by_id, s.room_id),
+              group:     Map.get(group_by_room, s.room_id),
+              check_out: Date.add(s.check_in, s.nights),
+              subtotal:  s.nights * details.rate_per_night
+            }
+          end
+
+        %{
+          booking:    booking,
+          rooms:      room_rows,
+          multi_room: length(booking.stays) > 1,
+          details:    details,
+          txns:       merge_txns(BookingDetails.txns_for(booking, today), booking),
+          events:     real_events(booking, today)
+        }
+      else
+        nil
+      end
+
+    expanded =
+      if selected && selected.multi_room do
+        MapSet.new([stay_id])
+      else
+        # Single-room bookings: expand the sole stay so details are visible.
+        case selected do
+          %{rooms: [only]} -> MapSet.new([only.stay.id])
+          _ -> MapSet.new()
+        end
+      end
+
+    assign(socket,
+      selected_booking: selected,
+      drawer_tab: (if same_booking?, do: socket.assigns.drawer_tab, else: "details"),
+      focused_stay_id: stay_id,
+      expanded_stays: (if same_booking?, do: socket.assigns.expanded_stays, else: expanded),
+      quick_menu: nil,
+      block_edit: (if same_booking?, do: socket.assigns.block_edit, else: %{}),
+      notes_draft: (if same_booking?, do: socket.assigns.notes_draft, else: nil)
+    )
   end
 
   defp handle_select_booking(socket, stay_id) when is_integer(stay_id) do
@@ -1803,8 +1956,9 @@ defmodule HospexWeb.CalendarLive do
 
     pending = Map.get(socket.assigns, :pending_drag)
 
+    zoom         = zoom_at(socket.assigns.zoom_level)
     dates        = Enum.map(0..(span - 1), &Date.add(anchor, &1))
-    cell_w       = cell_width(span)
+    cell_w       = zoom.cell_w
     today_col    = today_col(today, anchor, span)
     filtered     = stays |> apply_status_filter(socket) |> apply_search(socket) |> apply_room_type_filter(socket)
     visible      = compute_visible_stays(filtered, anchor, span)
@@ -1821,6 +1975,9 @@ defmodule HospexWeb.CalendarLive do
     assign(socket,
       dates: dates,
       cell_w: cell_w,
+      cell_h: zoom.cell_h,
+      zoom_label: zoom.label,
+      density: density_for(zoom.cell_h),
       total_grid_w: cell_w * span,
       today_col: today_col,
       visible_stays_flat: visible,
@@ -1829,6 +1986,12 @@ defmodule HospexWeb.CalendarLive do
       stats: stats
     )
   end
+
+  # CSS density tier: compact zooms hide the pills' second line and
+  # shrink type so content still fits the shorter rows.
+  defp density_for(cell_h) when cell_h <= 36, do: "tiny"
+  defp density_for(cell_h) when cell_h <= 48, do: "compact"
+  defp density_for(_cell_h), do: "normal"
 
   # Greedy interval-coloring: for each room, sort stays by check-in and pack
   # them into the lowest-numbered lane whose previous stay has already
@@ -1891,9 +2054,6 @@ defmodule HospexWeb.CalendarLive do
     end)
   end
 
-  defp cell_width(7),  do: 156
-  defp cell_width(14), do: 116
-  defp cell_width(_),  do: 64
 
   defp today_col(today, anchor, span) do
     diff = Date.diff(today, anchor)

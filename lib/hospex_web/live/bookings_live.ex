@@ -39,14 +39,11 @@ defmodule HospexWeb.BookingsLive do
   end
 
   def handle_event("filter_status", params, socket) do
-    IO.inspect(params, label: "[DBG filter_status]")
     s = Map.get(params, "status", "")
-    value = if s == "", do: nil, else: String.to_atom(s)
-    {:noreply, socket |> assign(:filter_status, value) |> recompute_visible()}
+    {:noreply, socket |> assign(:filter_status, HospexWeb.LiveParams.safe_status(s)) |> recompute_visible()}
   end
 
   def handle_event("filter_channel", params, socket) do
-    IO.inspect(params, label: "[DBG filter_channel]")
     c = Map.get(params, "channel", "")
     value = if c == "", do: nil, else: c
     {:noreply, socket |> assign(:filter_channel, value) |> recompute_visible()}
@@ -112,15 +109,12 @@ defmodule HospexWeb.BookingsLive do
   end
 
   def handle_event("open_calendar", %{"id" => id_str}, socket) do
-    # Jump to the calendar and select this booking. The calendar's mount
-    # doesn't currently take a booking-id param, so we just navigate; the
-    # user clicks the pill there. (Could push state via Phoenix.LiveView
-    # nav with params in a future pass.)
-    booking_id = String.to_integer(id_str)
-    booking    = Enum.find(socket.assigns.all_bookings, &(&1.id == booking_id))
-    target =
-      if booking, do: "/calendar?focus=#{Enum.at(booking.stays, 0).id}", else: "/calendar"
-    {:noreply, push_navigate(socket, to: target)}
+    # Jump to the calendar with this booking's drawer open — the calendar
+    # handles ?booking= in handle_params, and the URL is shareable.
+    case Integer.parse(id_str) do
+      {booking_id, _} -> {:noreply, push_navigate(socket, to: ~p"/calendar?booking=#{booking_id}")}
+      :error -> {:noreply, socket}
+    end
   end
 
   # ── Data loading + filtering ──────────────────────────────────
