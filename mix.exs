@@ -49,6 +49,9 @@ defmodule Hospex.MixProject do
       # Schema validation
       {:ex_json_schema, "~> 0.10"},
 
+      # Email (magic-link login)
+      {:swoosh, "~> 1.16"},
+
       # Observability
       {:telemetry_metrics, "~> 0.6"},
       {:telemetry_poller, "~> 1.0"},

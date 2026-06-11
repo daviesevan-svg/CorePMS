@@ -1,6 +1,8 @@
 defmodule HospexWeb.Router do
   use HospexWeb, :router
 
+  import HospexWeb.UserAuth
+
   pipeline :browser do
     plug :accepts, ["html"]
     plug :fetch_session
@@ -8,25 +10,45 @@ defmodule HospexWeb.Router do
     plug :put_root_layout, html: {HospexWeb.Layouts, :root}
     plug :protect_from_forgery
     plug :put_secure_browser_headers
+    plug :fetch_current_user
   end
 
   pipeline :api do
     plug :accepts, ["json"]
   end
 
+  # ── Public: magic-link login ──────────────────────────────────
+
   scope "/", HospexWeb do
     pipe_through :browser
 
-    get "/", PageController, :home
-    live "/dashboard", DashboardLive, :index
-    live "/calendar", CalendarLive, :index
-    live "/bookings", BookingsLive, :index
-    live "/inventory", InventoryLive, :index
+    get    "/login", AuthController, :login
+    post   "/login", AuthController, :request
+    get    "/login/t/:token", AuthController, :confirm
+    post   "/login/t/:token", AuthController, :create
+    delete "/logout", AuthController, :logout
+  end
 
-    get  "/settings", Redirector, :settings
-    live "/settings/property",   Settings.PropertyLive,  :index
-    live "/settings/room-types", Settings.RoomTypesLive, :index
-    live "/settings/rooms",      Settings.RoomsLive,     :index
+  # ── Staff-only ────────────────────────────────────────────────
+  # Both layers are required: the plug guards the HTTP request, the
+  # on_mount hook guards the LiveView websocket mount.
+
+  scope "/", HospexWeb do
+    pipe_through [:browser, :require_authenticated_user]
+
+    get "/", PageController, :home
+    get "/settings", Redirector, :settings
+
+    live_session :staff, on_mount: [{HospexWeb.UserAuth, :ensure_authenticated}] do
+      live "/dashboard", DashboardLive, :index
+      live "/calendar", CalendarLive, :index
+      live "/bookings", BookingsLive, :index
+      live "/inventory", InventoryLive, :index
+
+      live "/settings/property",   Settings.PropertyLive,  :index
+      live "/settings/room-types", Settings.RoomTypesLive, :index
+      live "/settings/rooms",      Settings.RoomsLive,     :index
+    end
   end
 
   # API endpoints for PMS partners to push content updates
@@ -41,7 +63,9 @@ defmodule HospexWeb.Router do
 
     scope "/dev" do
       pipe_through :browser
+
       live_dashboard "/dashboard", metrics: HospexWeb.Telemetry
+      forward "/mailbox", Plug.Swoosh.MailboxPreview
     end
   end
 end

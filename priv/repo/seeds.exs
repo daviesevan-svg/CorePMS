@@ -77,3 +77,17 @@ else
   count = Repo.aggregate(Booking, :count, :id)
   IO.puts("Seeded #{count} bookings from MockCalendarData.")
 end
+
+# ── Staff user for magic-link login ─────────────────────────────
+# In dev any address works — mail lands in the local mailbox at
+# /dev/mailbox. For real deployments set ADMIN_EMAIL.
+admin_email = System.get_env("ADMIN_EMAIL", "admin@example.com")
+
+case Hospex.Accounts.get_user_by_email(admin_email) do
+  nil ->
+    {:ok, _user} = Hospex.Accounts.create_user(admin_email)
+    IO.puts("Created staff login #{admin_email} (override with ADMIN_EMAIL).")
+
+  _user ->
+    IO.puts("Staff login #{admin_email} already exists — skipping.")
+end

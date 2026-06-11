@@ -1,0 +1,8 @@
+<.auth_card flash={@flash}>
+  <h1>Confirm sign-in</h1>
+  <p>Click below to finish signing in to Hospex.</p>
+  <form action={~p"/login/t/#{@token}"} method="post">
+    <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+    <button class="auth-btn" type="submit">Sign in</button>
+  </form>
+</.auth_card>

@@ -27,6 +27,14 @@ config :hospex, Oban,
     default: 10
   ]
 
+# Magic-link login emails. Local adapter stores mail in memory — browse it
+# at /dev/mailbox. Production should override with a real adapter (SMTP /
+# Resend / SES) in runtime.exs.
+config :hospex, Hospex.Mailer, adapter: Swoosh.Adapters.Local
+
+# No HTTP client needed until a production API-based mail adapter is chosen.
+config :swoosh, :api_client, false
+
 config :logger, :console,
   format: "$time $metadata[$level] $message\n",
   metadata: [:request_id]

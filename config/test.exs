@@ -10,10 +10,13 @@ config :hospex, Hospex.Repo,
 
 config :hospex, HospexWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4002],
-  secret_key_base: "test_secret_key_base_not_used_in_production_at_all",
+  secret_key_base: "test_secret_key_base_not_used_in_production_0000000000000000000000000000",
   server: false
 
 config :hospex, Oban, testing: :inline
+
+# Deliver emails to the test process instead of a real adapter.
+config :hospex, Hospex.Mailer, adapter: Swoosh.Adapters.Test
 
 config :logger, level: :warning
 config :phoenix, :plug_init_mode, :runtime

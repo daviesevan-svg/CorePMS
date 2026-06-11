@@ -137,7 +137,7 @@ defmodule HospexWeb.Settings.Shared do
           </svg>
           <span class="badge-dot"></span>
         </button>
-        <div class="me-avatar">EM</div>
+        <.link href="/logout" method="delete" data-confirm="Sign out of Hospex?" class="me-avatar" title="Sign out" style="text-decoration:none">EM</.link>
       </div>
     </div>
     """

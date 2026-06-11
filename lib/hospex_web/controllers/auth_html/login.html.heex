@@ -1,0 +1,20 @@
+<.auth_card flash={@flash}>
+  <%= if @sent do %>
+    <div class="auth-sent">
+      If that address belongs to a staff account, a sign-in link is on its
+      way. It's valid for 15 minutes — check your inbox.
+    </div>
+    <p class="auth-again">
+      Nothing arriving? <a href={~p"/login"}>Try again</a>
+    </p>
+  <% else %>
+    <h1>Sign in</h1>
+    <p>Enter your staff email and we'll send you a one-time sign-in link.</p>
+    <form action={~p"/login"} method="post">
+      <input type="hidden" name="_csrf_token" value={get_csrf_token()} />
+      <label for="email">Email</label>
+      <input type="email" id="email" name="email" required autofocus placeholder="you@hotel.com" />
+      <button class="auth-btn" type="submit">Email me a sign-in link</button>
+    </form>
+  <% end %>
+</.auth_card>
