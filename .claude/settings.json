@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mix compile)",
+      "Bash(mix compile *)",
+      "Bash(mix test)",
+      "Bash(mix test *)",
+      "Bash(mise exec -- mix compile *)",
+      "Bash(curl -s http://localhost:4000*)",
+      "Bash(curl -sL http://localhost:4000*)",
+      "mcp__Claude_Preview__preview_logs",
+      "mcp__Claude_Preview__preview_snapshot",
+      "mcp__Claude_Preview__preview_screenshot"
+    ]
+  }
+}
