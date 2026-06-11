@@ -8,11 +8,11 @@ defmodule Hospex.Bookings do
   be ingested from the property's YAML repo. The operational store
   (bookings, stays) is what users add/edit through the UI.
 
-  Scope note: `events` (booking audit log), `transactions` (payments /
-  refunds / charges history) and `notes` (free-text staff notes) are
-  stubbed in this refactor — they always read as `[]` / `[]` / `nil`.
-  The side-effects of those mutations on `paid` / `total` / `status`
-  are still persisted on the booking row.
+  Every mutation and its audit-log entry commit in one transaction —
+  a booking can never change without its history recording it. Money
+  mutations (`apply_payment`, `add_transaction`) additionally insert a
+  `BookingTransaction` ledger row in that same transaction, so
+  `booking.paid` always equals the sum of its ledger.
   """
 
   import Ecto.Query, only: [from: 2]
@@ -26,38 +26,53 @@ defmodule Hospex.Bookings do
 
   # ── Event log ────────────────────────────────────────────────
 
-  @doc """
-  Audit-log entry point. Inserts a `booking_events` row. `kind` is the
-  atom kind; opts may include `:by` (defaults to "system") and `:summary`
-  (defaults to a humanized kind). Returns `:ok` (or `:ok` if the booking
-  has been deleted concurrently — append is best-effort).
-  """
-  def append_event(booking_id, kind, opts \\ []) when is_atom(kind) do
-    attrs = %{
+  # Inserts a `booking_events` row, raising on failure so an enclosing
+  # transaction rolls the mutation back with it — the audit log and the
+  # mutation it describes always commit (or fail) together.
+  defp insert_event!(booking_id, kind, opts) when is_atom(kind) do
+    %BookingEvent{}
+    |> BookingEvent.changeset(%{
       booking_id: booking_id,
       kind:       Atom.to_string(kind),
       at:         NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second),
       by:         Keyword.get(opts, :by, "system"),
       summary:    Keyword.get(opts, :summary, humanize_kind(kind))
-    }
-
-    case %BookingEvent{} |> BookingEvent.changeset(attrs) |> Repo.insert() do
-      {:ok, _} -> :ok
-      {:error, _} -> :ok
-    end
+    })
+    |> Repo.insert!()
   end
 
   defp humanize_kind(kind), do: kind |> Atom.to_string() |> String.replace("_", " ") |> String.capitalize()
+
+  # Run a Store mutation and its audit-log entry in one transaction.
+  # Returns {:ok, fresh_booking_map} | {:error, :not_found | reason}.
+  defp mutate_and_log(booking_id, update_fn, kind, opts) do
+    Repo.transaction(fn ->
+      case Store.update_booking(booking_id, update_fn) do
+        {:ok, fresh} ->
+          insert_event!(booking_id, kind, opts)
+          fresh
+
+        {:error, reason} ->
+          Repo.rollback(reason)
+      end
+    end)
+  end
+
+  defp ok_and_broadcast({:ok, _fresh}, booking_id) do
+    broadcast({:booking_updated, booking_id})
+    :ok
+  end
+
+  defp ok_and_broadcast({:error, _} = err, _booking_id), do: err
 
   @doc """
   Set or update the booking's internal staff notes. Writes the column
   and appends a `:notes_updated` event.
   """
   def update_notes(booking_id, notes) do
-    Store.update_booking(booking_id, fn b -> Map.put(b, :notes, notes) end)
-    append_event(booking_id, :notes_updated, summary: "Notes updated")
-    broadcast({:booking_updated, booking_id})
-    :ok
+    booking_id
+    |> mutate_and_log(&Map.put(&1, :notes, notes), :notes_updated, summary: "Notes updated")
+    |> ok_and_broadcast(booking_id)
   end
 
   # ── Subscription / broadcast ─────────────────────────────────
@@ -89,6 +104,9 @@ defmodule Hospex.Bookings do
   def load_calendar do
     load_calendar(Date.utc_today(), 14)
   end
+
+  @doc "Fetch a single booking (with full audit/ledger preloads) by id."
+  def get_booking(booking_id), do: Store.get_booking(booking_id)
 
   @doc """
   Windowed calendar load: returns the same `{room_groups, bookings,
@@ -216,55 +234,56 @@ defmodule Hospex.Bookings do
     nights = Date.diff(attrs.check_out, attrs.check_in)
     src    = Map.get(attrs, :src, "direct")
 
-    booking =
-      Store.insert_booking(fn id, stay_id_base ->
-        creation = %{
-          id:      1,
-          kind:    :booking_created,
-          at:      NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second),
-          by:      "Reception",
-          summary: "Booking created · #{attrs.lead_guest}"
-        }
+    {:ok, booking} =
+      Repo.transaction(fn ->
+        booking =
+          Store.insert_booking(fn id, stay_id_base ->
+            stay = %{
+              id:         stay_id_base,
+              booking_id: id,
+              room_id:    attrs.room_id,
+              guest_name: Map.get(attrs, :guest_name) || attrs.lead_guest,
+              adults:     attrs.adults,
+              kids:       attrs.kids,
+              check_in:   attrs.check_in,
+              nights:     nights,
+              status:     :unpaid,
+              src:        src,
+              total:      attrs.total,
+              subtotal:   attrs.total,
+              paid:       0,
+              room_count: 1
+            }
 
-        stay = %{
-          id:         stay_id_base,
-          booking_id: id,
-          room_id:    attrs.room_id,
-          guest_name: Map.get(attrs, :guest_name) || attrs.lead_guest,
-          adults:     attrs.adults,
-          kids:       attrs.kids,
-          check_in:   attrs.check_in,
-          nights:     nights,
-          status:     :unpaid,
-          src:        src,
-          total:      attrs.total,
-          paid:       0,
-          room_count: 1
-        }
+            %{
+              id:              id,
+              ref:             "BK-#{id}",
+              lead_guest:      attrs.lead_guest,
+              src:             src,
+              status:          :unpaid,
+              total:           attrs.total,
+              paid:            0,
+              check_in:        attrs.check_in,
+              check_out:       attrs.check_out,
+              stays:           [stay],
+              ota_ref:         nil,
+              payment_collect: :property,
+              email:           Map.get(attrs, :email),
+              phone:           Map.get(attrs, :phone),
+              country:         Map.get(attrs, :country),
+              requests:        Map.get(attrs, :requests),
+              rate_night:      Map.get(attrs, :rate_night),
+              cleaning_fee:    Map.get(attrs, :cleaning_fee),
+              tax_rate:        Map.get(attrs, :tax_rate),
+              notes:           nil
+            }
+          end)
 
-        %{
-          id:              id,
-          ref:             "BK-#{id}",
-          lead_guest:      attrs.lead_guest,
-          src:             src,
-          status:          :unpaid,
-          total:           attrs.total,
-          paid:            0,
-          check_in:        attrs.check_in,
-          check_out:       attrs.check_out,
-          stays:           [stay],
-          ota_ref:         nil,
-          payment_collect: :property,
-          email:           Map.get(attrs, :email),
-          phone:           Map.get(attrs, :phone),
-          country:         Map.get(attrs, :country),
-          requests:        Map.get(attrs, :requests),
-          rate_night:      Map.get(attrs, :rate_night),
-          cleaning_fee:    Map.get(attrs, :cleaning_fee),
-          tax_rate:        Map.get(attrs, :tax_rate),
-          events:          [creation],
-          notes:           nil
-        }
+        insert_event!(booking.id, :booking_created,
+          by: "Reception", summary: "Booking created · #{attrs.lead_guest}")
+
+        # Re-read so the returned map includes the creation event.
+        Store.get_booking(booking.id) || booking
       end)
 
     broadcast({:booking_created, booking.id})
@@ -280,42 +299,47 @@ defmodule Hospex.Bookings do
     nights = Date.diff(f.end_date, f.start_date)
     lead   = if f.reason != "", do: "Block · #{f.reason}", else: "Block · Internal"
 
-    booking =
-      Store.insert_booking(fn id, stay_id_base ->
-        stay = %{
-          id:         stay_id_base,
-          booking_id: id,
-          room_id:    f.room_id,
-          guest_name: lead,
-          adults:     0, kids: 0,
-          check_in:   f.start_date,
-          nights:     nights,
-          status:     :hold,
-          src:        "—",
-          total:      0, paid: 0,
-          room_count: 1
-        }
+    {:ok, booking} =
+      Repo.transaction(fn ->
+        booking =
+          Store.insert_booking(fn id, stay_id_base ->
+            stay = %{
+              id:         stay_id_base,
+              booking_id: id,
+              room_id:    f.room_id,
+              guest_name: lead,
+              adults:     0, kids: 0,
+              check_in:   f.start_date,
+              nights:     nights,
+              status:     :hold,
+              src:        "block",
+              total:      0, paid: 0, subtotal: 0,
+              room_count: 1
+            }
 
-        %{
-          id:              id,
-          ref:             "BK-#{id}",
-          lead_guest:      lead,
-          src:             "—",
-          status:          :hold,
-          total:           0, paid: 0,
-          check_in:        f.start_date,
-          check_out:       f.end_date,
-          stays:           [stay],
-          ota_ref:         nil,
-          payment_collect: :property,
-          block_reason:    f.reason,
-          block_release:   f.auto_release && f.release_at || nil,
-          block_by:        f.blocked_by
-        }
+            %{
+              id:              id,
+              ref:             "BK-#{id}",
+              lead_guest:      lead,
+              src:             "block",
+              status:          :hold,
+              total:           0, paid: 0,
+              check_in:        f.start_date,
+              check_out:       f.end_date,
+              stays:           [stay],
+              ota_ref:         nil,
+              payment_collect: :property,
+              block_reason:    f.reason,
+              block_release:   f.auto_release && f.release_at || nil,
+              block_by:        f.blocked_by
+            }
+          end)
+
+        insert_event!(booking.id, :block_created, summary: "Block created · #{booking.lead_guest}")
+        Store.get_booking(booking.id) || booking
       end)
 
     broadcast({:booking_created, booking.id})
-    append_event(booking.id, :block_created, summary: "Block created · #{booking.lead_guest}")
     {:ok, booking}
   end
 
@@ -325,44 +349,35 @@ defmodule Hospex.Bookings do
   status alone — it represents the aggregate.)
   """
   def update_stay_status(stay_id, new_status) when is_atom(new_status) do
-    booking_id = booking_id_for_stay(stay_id)
+    with {:ok, booking_id} <- booking_id_for_stay(stay_id) do
+      booking_id
+      |> mutate_and_log(
+        fn b ->
+          new_stays =
+            Enum.map(b.stays, fn s ->
+              if s.id == stay_id, do: %{s | status: new_status}, else: s
+            end)
 
-    Store.update_booking(booking_id, fn b ->
-      new_stays =
-        Enum.map(b.stays, fn s ->
-          if s.id == stay_id, do: %{s | status: new_status}, else: s
-        end)
-
-      if length(new_stays) == 1 do
-        %{b | status: new_status, stays: new_stays}
-      else
-        %{b | stays: new_stays}
-      end
-    end)
-
-    append_event(booking_id, :status_changed,
-      summary: "Status changed to #{new_status |> Atom.to_string() |> String.capitalize()}")
-
-    broadcast({:booking_updated, booking_id})
-    :ok
+          if length(new_stays) == 1 do
+            %{b | status: new_status, stays: new_stays}
+          else
+            %{b | stays: new_stays}
+          end
+        end,
+        :status_changed,
+        summary: "Status changed to #{new_status |> Atom.to_string() |> String.capitalize()}"
+      )
+      |> ok_and_broadcast(booking_id)
+    end
   end
 
   @doc """
-  Add `amount` to a booking's paid total. Each stay denormalizes `paid`
-  for the calendar pill, so we mirror onto every stay too.
+  Record a payment of `amount` against a booking. Delegates to
+  `add_transaction/2` so the ledger, `paid`, and the audit log always
+  move together.
   """
   def apply_payment(booking_id, amount) when is_integer(amount) and amount > 0 do
-    Store.update_booking(booking_id, fn b ->
-      new_paid  = b.paid + amount
-      new_stays = Enum.map(b.stays, &Map.put(&1, :paid, new_paid))
-      %{b | paid: new_paid, stays: new_stays}
-    end)
-
-    append_event(booking_id, :payment_recorded,
-      summary: "Payment of €#{amount} recorded")
-
-    broadcast({:booking_updated, booking_id})
-    :ok
+    add_transaction(booking_id, %{kind: :payment, amount: amount})
   end
 
   def apply_payment(_id, _amount), do: :noop
@@ -384,27 +399,27 @@ defmodule Hospex.Bookings do
     note   = Map.get(attrs, :note) || ""
     now    = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
 
-    {:ok, _} =
-      Repo.transaction(fn ->
-        Store.update_booking(booking_id, fn b ->
-          apply_txn_to_totals(b, kind, amount)
-        end)
+    Repo.transaction(fn ->
+      case Store.update_booking(booking_id, &apply_txn_to_totals(&1, kind, amount)) do
+        {:ok, _fresh} ->
+          %BookingTransaction{}
+          |> BookingTransaction.changeset(%{
+            booking_id: booking_id,
+            kind:       Atom.to_string(kind),
+            amount:     amount,
+            method:     method,
+            note:       note,
+            created_at: now
+          })
+          |> Repo.insert!()
 
-        %BookingTransaction{}
-        |> BookingTransaction.changeset(%{
-          booking_id: booking_id,
-          kind:       Atom.to_string(kind),
-          amount:     amount,
-          method:     method,
-          note:       note,
-          created_at: now
-        })
-        |> Repo.insert!()
-      end)
+          insert_event!(booking_id, kind, summary: txn_summary(kind, amount, method))
 
-    append_event(booking_id, kind, summary: txn_summary(kind, amount, method))
-    broadcast({:booking_updated, booking_id})
-    :ok
+        {:error, reason} ->
+          Repo.rollback(reason)
+      end
+    end)
+    |> ok_and_broadcast(booking_id)
   end
 
   def add_transaction(_id, _attrs), do: {:error, :invalid}
@@ -413,18 +428,43 @@ defmodule Hospex.Bookings do
   defp txn_summary(:refund,  amt, method), do: "Refund of €#{amt}" <> if(method, do: " (#{method})", else: "")
   defp txn_summary(:charge,  amt, _method), do: "Charge of €#{amt}"
 
-  defp apply_txn_to_totals(b, :payment, amt) do
-    new_paid = b.paid + amt
-    %{b | paid: new_paid, stays: Enum.map(b.stays, &Map.put(&1, :paid, new_paid))}
+  defp apply_txn_to_totals(b, :payment, amt), do: put_money(b, b.paid + amt, b.total)
+
+  # Refunding more than was paid would permanently desync `paid` from the
+  # transaction ledger — reject it rather than clamp.
+  defp apply_txn_to_totals(b, :refund, amt) when amt > b.paid, do: {:error, :refund_exceeds_paid}
+  defp apply_txn_to_totals(b, :refund, amt), do: put_money(b, b.paid - amt, b.total)
+
+  defp apply_txn_to_totals(b, :charge, amt), do: put_money(b, b.paid, b.total + amt)
+
+  # Each stay denormalizes paid/total for the calendar pill, so mirror
+  # both — and re-derive the payment status from the new balance.
+  defp put_money(b, new_paid, new_total) do
+    new_stays =
+      Enum.map(b.stays, fn s ->
+        %{s | paid: new_paid, total: new_total,
+              status: derive_payment_status(s.status, new_paid, new_total)}
+      end)
+
+    %{b | paid: new_paid, total: new_total,
+          status: derive_payment_status(b.status, new_paid, new_total),
+          stays: new_stays}
   end
-  defp apply_txn_to_totals(b, :refund, amt) do
-    new_paid = max(0, b.paid - amt)
-    %{b | paid: new_paid, stays: Enum.map(b.stays, &Map.put(&1, :paid, new_paid))}
+
+  # Payments move a booking between unpaid / partial / paid, but must not
+  # clobber lifecycle statuses staff set explicitly (:in, :hold,
+  # :cancelled) or channel-collected bookings (:ota_collect).
+  @payment_statuses [:unpaid, :partial, :paid]
+
+  defp derive_payment_status(current, paid, total) when current in @payment_statuses do
+    cond do
+      total > 0 and paid >= total -> :paid
+      paid > 0                    -> :partial
+      true                        -> :unpaid
+    end
   end
-  defp apply_txn_to_totals(b, :charge, amt) do
-    new_total = b.total + amt
-    %{b | total: new_total, stays: Enum.map(b.stays, &Map.put(&1, :total, new_total))}
-  end
+
+  defp derive_payment_status(current, _paid, _total), do: current
 
   @doc """
   Update a single stay within a booking. Booking-level fields (lead
@@ -436,7 +476,8 @@ defmodule Hospex.Bookings do
   def update_simple_booking(booking_id, stay_id, attrs) do
     nights = Date.diff(attrs.check_out, attrs.check_in)
 
-    Store.update_booking(booking_id, fn b ->
+    booking_id
+    |> mutate_and_log(fn b ->
       # Each stay carries its own subtotal so we can re-aggregate cleanly.
       stays_with_subtotals = ensure_subtotals(b)
 
@@ -485,11 +526,8 @@ defmodule Hospex.Bookings do
         tax_rate:     Map.get(attrs, :tax_rate, Map.get(b, :tax_rate)),
         stays:        new_stays
       })
-    end)
-
-    append_event(booking_id, :stay_edited, summary: "Booking edited")
-    broadcast({:booking_updated, booking_id})
-    :ok
+    end, :stay_edited, summary: "Booking edited")
+    |> ok_and_broadcast(booking_id)
   end
 
   @doc """
@@ -499,7 +537,10 @@ defmodule Hospex.Bookings do
   across all stays (each carries an explicit `:subtotal`).
   """
   def update_multi_stay_booking(booking_id, booking_attrs, stays_attrs_by_id) do
-    Store.update_booking(booking_id, fn b ->
+    n_rooms = map_size(stays_attrs_by_id)
+
+    booking_id
+    |> mutate_and_log(fn b ->
       stays_with_subs = ensure_subtotals(b)
 
       new_stays =
@@ -547,13 +588,8 @@ defmodule Hospex.Bookings do
         tax_rate:     Map.get(booking_attrs, :tax_rate, Map.get(b, :tax_rate)),
         stays:        new_stays
       })
-    end)
-
-    n_rooms = map_size(stays_attrs_by_id)
-    append_event(booking_id, :booking_edited,
-      summary: "Booking edited · #{n_rooms} room#{if n_rooms != 1, do: "s"}")
-    broadcast({:booking_updated, booking_id})
-    :ok
+    end, :booking_edited, summary: "Booking edited · #{n_rooms} room#{if n_rooms != 1, do: "s"}")
+    |> ok_and_broadcast(booking_id)
   end
 
   # Seeded stays don't carry an explicit per-stay subtotal — split the
@@ -577,55 +613,60 @@ defmodule Hospex.Bookings do
   """
   def add_stay_to_booking(booking_id, attrs) do
     nights = Date.diff(attrs.check_out, attrs.check_in)
-    new_stay_id_ref = make_ref()
 
-    new_stay_id =
-      Store.update_booking(booking_id, fn b ->
-        existing_stay_ids = Enum.map(b.stays, & &1.id)
-        new_id = (existing_stay_ids |> Enum.max(fn -> b.id * 100 end)) + 1
+    result =
+      mutate_and_log(
+        booking_id,
+        fn b ->
+          existing_with_subs = ensure_subtotals(b)
 
-        Process.put({:new_stay_id, new_stay_id_ref}, new_id)
+          # No :id key — Postgres assigns the real one on insert; we read
+          # it back from the fresh map below.
+          new_stay = %{
+            booking_id: b.id,
+            room_id:    attrs.room_id,
+            guest_name: attrs.guest_name,
+            adults:     attrs.adults,
+            kids:       attrs.kids,
+            check_in:   attrs.check_in,
+            nights:     nights,
+            status:     b.status,
+            src:        b.src,
+            subtotal:   attrs.subtotal,
+            total:      b.total + attrs.subtotal,
+            paid:       b.paid,
+            room_count: length(b.stays) + 1
+          }
 
-        existing_with_subs = ensure_subtotals(b)
+          new_total = b.total + attrs.subtotal
+          # Mirror total + room_count on existing stays.
+          updated_existing =
+            Enum.map(existing_with_subs, &Map.merge(&1, %{total: new_total, room_count: length(b.stays) + 1}))
 
-        new_stay = %{
-          id:         new_id,
-          booking_id: b.id,
-          room_id:    attrs.room_id,
-          guest_name: attrs.guest_name,
-          adults:     attrs.adults,
-          kids:       attrs.kids,
-          check_in:   attrs.check_in,
-          nights:     nights,
-          status:     b.status,
-          src:        b.src,
-          subtotal:   attrs.subtotal,
-          total:      b.total + attrs.subtotal,
-          paid:       b.paid,
-          room_count: length(b.stays) + 1
-        }
+          %{b |
+            total: new_total,
+            # Booking's date range expands to envelope the new stay.
+            check_in:  Enum.min([b.check_in, attrs.check_in], Date),
+            check_out: Enum.max([b.check_out, attrs.check_out], Date),
+            stays: updated_existing ++ [new_stay]
+          }
+        end,
+        :room_added,
+        summary: "Room added · #{attrs.guest_name} in #{attrs.room_id |> String.replace_prefix("r", "")}"
+      )
 
-        new_total = b.total + attrs.subtotal
-        # Mirror total + room_count on existing stays.
-        updated_existing =
-          Enum.map(existing_with_subs, &Map.merge(&1, %{total: new_total, room_count: length(b.stays) + 1}))
+    case result do
+      {:ok, fresh} ->
+        broadcast({:booking_updated, booking_id})
+        # Stay ids come from a monotonic sequence and the row lock
+        # serializes mutations of this booking, so the highest id in the
+        # fresh snapshot is the stay we just inserted.
+        new_stay_id = fresh.stays |> Enum.map(& &1.id) |> Enum.max()
+        {:ok, new_stay_id}
 
-        %{b |
-          total: new_total,
-          # Booking's date range expands to envelope the new stay.
-          check_in:  Enum.min([b.check_in, attrs.check_in], Date),
-          check_out: Enum.max([b.check_out, attrs.check_out], Date),
-          stays: updated_existing ++ [new_stay]
-        }
-      end)
-      |> then(fn _ -> Process.get({:new_stay_id, new_stay_id_ref}) end)
-
-    Process.delete({:new_stay_id, new_stay_id_ref})
-
-    append_event(booking_id, :room_added,
-      summary: "Room added · #{attrs.guest_name} in #{attrs.room_id |> String.replace_prefix("r", "")}")
-    broadcast({:booking_updated, booking_id})
-    {:ok, new_stay_id}
+      {:error, _} = err ->
+        err
+    end
   end
 
   @doc """
@@ -633,19 +674,15 @@ defmodule Hospex.Bookings do
   may be a NaiveDateTime (auto-release on) or nil (auto-release off).
   """
   def set_block_release(booking_id, release_at) when is_nil(release_at) or is_struct(release_at, NaiveDateTime) do
-    Store.update_booking(booking_id, fn b ->
-      Map.put(b, :block_release, release_at)
-    end)
-
     summary =
       case release_at do
         nil -> "Auto-release disabled"
         dt  -> "Auto-release set to #{Calendar.strftime(dt, "%b %-d, %H:%M")}"
       end
 
-    append_event(booking_id, :block_release_changed, summary: summary)
-    broadcast({:booking_updated, booking_id})
-    :ok
+    booking_id
+    |> mutate_and_log(&Map.put(&1, :block_release, release_at), :block_release_changed, summary: summary)
+    |> ok_and_broadcast(booking_id)
   end
 
   @doc """
@@ -667,14 +704,16 @@ defmodule Hospex.Bookings do
 
   @doc "Mark a booking cancelled (mirrors status onto all stays)."
   def cancel_booking(booking_id) do
-    Store.update_booking(booking_id, fn b ->
-      new_stays = Enum.map(b.stays, &%{&1 | status: :cancelled})
-      %{b | status: :cancelled, stays: new_stays}
-    end)
-
-    append_event(booking_id, :booking_cancelled, summary: "Booking cancelled")
-    broadcast({:booking_updated, booking_id})
-    :ok
+    booking_id
+    |> mutate_and_log(
+      fn b ->
+        new_stays = Enum.map(b.stays, &%{&1 | status: :cancelled})
+        %{b | status: :cancelled, stays: new_stays}
+      end,
+      :booking_cancelled,
+      summary: "Booking cancelled"
+    )
+    |> ok_and_broadcast(booking_id)
   end
 
   @doc """
@@ -684,36 +723,37 @@ defmodule Hospex.Bookings do
   Negative deltas allowed; clamped so nights stay >= 1.
   """
   def update_stay_position(stay_id, changes) do
-    booking_id = booking_id_for_stay(stay_id)
+    with {:ok, booking_id} <- booking_id_for_stay(stay_id) do
+      booking_id
+      |> mutate_and_log(
+        fn b ->
+          stays_with_subs = ensure_subtotals(b)
 
-    Store.update_booking(booking_id, fn b ->
-      stays_with_subs = ensure_subtotals(b)
+          new_stays =
+            Enum.map(stays_with_subs, fn s ->
+              if s.id == stay_id, do: apply_position_changes(s, changes), else: s
+            end)
 
-      new_stays =
-        Enum.map(stays_with_subs, fn s ->
-          if s.id == stay_id, do: apply_position_changes(s, changes), else: s
-        end)
+          # Re-aggregate booking-level totals from per-stay subtotals so the
+          # pill + outstanding-balance numbers stay consistent.
+          new_total = Enum.reduce(new_stays, 0, &(&1.subtotal + &2))
+          new_stays = Enum.map(new_stays, &Map.put(&1, :total, new_total))
 
-      # Re-aggregate booking-level totals from per-stay subtotals so the
-      # pill + outstanding-balance numbers stay consistent.
-      new_total = Enum.reduce(new_stays, 0, &(&1.subtotal + &2))
-      new_stays = Enum.map(new_stays, &Map.put(&1, :total, new_total))
+          check_in =
+            new_stays |> Enum.map(& &1.check_in) |> Enum.min(Date)
 
-      check_in =
-        new_stays |> Enum.map(& &1.check_in) |> Enum.min(Date)
+          check_out =
+            new_stays
+            |> Enum.map(&Date.add(&1.check_in, &1.nights))
+            |> Enum.max(Date)
 
-      check_out =
-        new_stays
-        |> Enum.map(&Date.add(&1.check_in, &1.nights))
-        |> Enum.max(Date)
-
-      %{b | check_in: check_in, check_out: check_out, total: new_total, stays: new_stays}
-    end)
-
-    append_event(booking_id, :stay_rescheduled,
-      summary: position_summary(changes))
-    broadcast({:booking_updated, booking_id})
-    :ok
+          %{b | check_in: check_in, check_out: check_out, total: new_total, stays: new_stays}
+        end,
+        :stay_rescheduled,
+        summary: position_summary(changes)
+      )
+      |> ok_and_broadcast(booking_id)
+    end
   end
 
   defp apply_position_changes(stay, changes) do
@@ -752,30 +792,30 @@ defmodule Hospex.Bookings do
 
   @doc "Change the room a stay is assigned to."
   def move_stay(stay_id, new_room_id) when is_binary(new_room_id) do
-    booking_id = booking_id_for_stay(stay_id)
+    with {:ok, booking_id} <- booking_id_for_stay(stay_id) do
+      booking_id
+      |> mutate_and_log(
+        fn b ->
+          new_stays =
+            Enum.map(b.stays, fn s ->
+              if s.id == stay_id, do: %{s | room_id: new_room_id}, else: s
+            end)
 
-    Store.update_booking(booking_id, fn b ->
-      new_stays =
-        Enum.map(b.stays, fn s ->
-          if s.id == stay_id, do: %{s | room_id: new_room_id}, else: s
-        end)
-
-      %{b | stays: new_stays}
-    end)
-
-    append_event(booking_id, :stay_moved,
-      summary: "Stay moved to room #{String.replace_prefix(new_room_id, "r", "")}")
-
-    broadcast({:booking_updated, booking_id})
-    :ok
+          %{b | stays: new_stays}
+        end,
+        :stay_moved,
+        summary: "Stay moved to room #{String.replace_prefix(new_room_id, "r", "")}"
+      )
+      |> ok_and_broadcast(booking_id)
+    end
   end
 
   # ── Internals ────────────────────────────────────────────────
 
   defp booking_id_for_stay(stay_id) do
-    Store.list_bookings()
-    |> Enum.find_value(fn b ->
-      if Enum.any?(b.stays, &(&1.id == stay_id)), do: b.id
-    end)
+    case Repo.one(from s in Stay, where: s.id == ^stay_id, select: s.booking_id) do
+      nil -> {:error, :not_found}
+      booking_id -> {:ok, booking_id}
+    end
   end
 end

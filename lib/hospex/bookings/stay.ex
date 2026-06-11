@@ -19,7 +19,9 @@ defmodule Hospex.Bookings.Stay do
     field :src,        :string, default: "direct"
     field :total,      :integer, default: 0
     field :paid,       :integer, default: 0
-    field :subtotal,   :integer, default: 0
+    # nil = no explicit per-stay split yet (even-split fallback applies);
+    # 0 is a real value (comped stay), so no default.
+    field :subtotal,   :integer
     field :nightly_rates, {:array, :map}, default: []
 
     belongs_to :booking, Booking

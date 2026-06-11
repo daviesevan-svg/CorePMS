@@ -1,9 +1,10 @@
 defmodule Hospex.Content.BookingDetails do
   @moduledoc """
-  Synthetic detail data derived from a booking (guest contact info, pricing
-  breakdown, requests, payment history, activity timeline). All values are
-  stable for a given booking — hashed off the guest name — so re-renders are
-  consistent without persistent storage.
+  Drawer-facing view data derived from a booking. Pricing breakdown,
+  contact info, and requests come from the booking's real columns —
+  nothing is fabricated. Only cosmetic values (avatar color, initials)
+  are hash-derived from the guest name, plus the legacy activity-timeline
+  fallback for seeded bookings without stored events.
   """
 
   @countries [
@@ -18,29 +19,7 @@ defmodule Hospex.Content.BookingDetails do
     {"#cb9a3d", "#fff"}, {"#8a7adb", "#fff"}
   ]
 
-  @country_calling_codes ~w(+49 +33 +34 +39 +44 +1 +81 +55 +46 +31 +351)
-
-  @request_options [
-    "Early check-in if available",
-    "High floor preferred",
-    "Quiet room away from elevator",
-    "Extra pillows",
-    "Late check-out requested",
-    "Allergy: feather pillows",
-    "Crib needed in room",
-    nil
-  ]
-
-  @arrival_times ~w(15:30 16:00 17:00 18:30 19:00 20:00 21:00 late)
-
   @staff ["Elena M.", "Marco R.", "Priya S.", "Jonas K."]
-
-  @payment_methods [
-    %{icon: "card", label: "Visa ending 4421"},
-    %{icon: "card", label: "Mastercard ending 9038"},
-    %{icon: "cash", label: "Cash · front desk"},
-    %{icon: "card", label: "Channel payout"}
-  ]
 
   @doc "Stable non-negative hash of a string (mirrors the JSX `hashStr`)."
   def hash_str(s) when is_binary(s) do
@@ -67,29 +46,15 @@ defmodule Hospex.Content.BookingDetails do
     end
   end
 
-  def email_of(name) do
-    slug =
-      name
-      |> String.downcase()
-      |> String.replace(~r/[^a-z]+/, ".")
-      |> String.trim(".")
-
-    domains = ~w(gmail.com outlook.com proton.me icloud.com yahoo.com)
-    domain  = Enum.at(domains, rem(hash_str(name), length(domains)))
-    "#{slug}@#{domain}"
-  end
-
-  def phone_of(name) do
-    h  = hash_str(name <> "p")
-    cc = Enum.at(@country_calling_codes, rem(h, length(@country_calling_codes)))
-    num = Integer.to_string(rem(hash_str(name), 9_000_000) + 1_000_000)
-    "#{cc} #{String.slice(num, 0, 3)} #{String.slice(num, 3, 4)}"
-  end
-
+  # Postgres-backed reads hand us whitelisted atoms; legacy in-memory
+  # shapes used strings. Accept both.
+  def channel_name(src) when is_atom(src), do: channel_name(Atom.to_string(src))
   def channel_name("BC"), do: "Booking.com"
   def channel_name("AB"), do: "Airbnb"
   def channel_name("EX"), do: "Expedia"
   def channel_name("DR"), do: "Direct"
+  def channel_name("direct"), do: "Direct"
+  def channel_name("block"), do: "Internal"
   def channel_name("—"),  do: "Internal"
   def channel_name(src),  do: src
 
@@ -103,10 +68,13 @@ defmodule Hospex.Content.BookingDetails do
     do: "#{channel_name(src)} takes payment from the guest and remits the net to you."
   def payment_collect_hint(_, _), do: ""
 
+  def channel_initials(src) when is_atom(src), do: channel_initials(Atom.to_string(src))
   def channel_initials("BC"), do: "B"
   def channel_initials("AB"), do: "A"
   def channel_initials("EX"), do: "E"
   def channel_initials("DR"), do: "D"
+  def channel_initials("direct"), do: "D"
+  def channel_initials("block"), do: "·"
   def channel_initials("—"),  do: "·"
   def channel_initials(_),    do: "?"
 
@@ -134,48 +102,77 @@ defmodule Hospex.Content.BookingDetails do
   @doc "Build the full details payload for a booking."
   def details_for(booking) do
     h = hash_str(booking.lead_guest)
-    country = Enum.at(@countries, rem(h, length(@countries)))
-    avatar  = Enum.at(@avatar_colors, rem(h, length(@avatar_colors)))
+    avatar = Enum.at(@avatar_colors, rem(h, length(@avatar_colors)))
 
     room_nights = booking.stays |> Enum.map(& &1.nights) |> Enum.sum()
-    rate_per_night = if room_nights > 0, do: div(booking.total, room_nights), else: 0
-    tax_rate       = 10
-    tax            = round(booking.total * tax_rate / (100 + tax_rate))
-    subtotal       = booking.total - tax
-    cleaning_per_room = if booking.status == :hold, do: 0, else: min(50, round(booking.total * 0.04 / max(length(booking.stays), 1)))
-    cleaning          = cleaning_per_room * length(booking.stays)
+
+    # Pricing comes from the booking's real columns — nothing is invented.
+    cleaning   = Map.get(booking, :cleaning_fee) || 0
+    tax_rate   = Map.get(booking, :tax_rate) || 0
+    rate_night = Map.get(booking, :rate_night)
+
+    {subtotal, tax} =
+      cond do
+        is_integer(rate_night) and rate_night > 0 ->
+          sub = rate_night * room_nights
+          {sub, max(booking.total - sub - cleaning, 0)}
+
+        tax_rate > 0 ->
+          # No stored nightly rate but a tax rate: back the tax out of the
+          # tax-inclusive total.
+          pre_tax = round(booking.total * 100 / (100 + tax_rate))
+          {max(pre_tax - cleaning, 0), booking.total - pre_tax}
+
+        true ->
+          {max(booking.total - cleaning, 0), 0}
+      end
+
+    rate_per_night =
+      rate_night || if(room_nights > 0, do: div(subtotal, room_nights), else: 0)
+
+    country_code = Map.get(booking, :country)
+
+    country_name =
+      case Enum.find(@countries, fn {code, _} -> code == country_code end) do
+        {_, name} -> name
+        nil -> country_code
+      end
+
+    requests =
+      case Map.get(booking, :requests) do
+        r when is_binary(r) and r != "" -> [r]
+        _ -> []
+      end
 
     %{
       hash:           h,
       initials:       initials_of(booking.lead_guest),
       avatar_bg:      elem(avatar, 0),
       avatar_fg:      elem(avatar, 1),
-      country_code:   elem(country, 0),
-      country_name:   elem(country, 1),
-      email:          email_of(booking.lead_guest),
-      phone:          phone_of(booking.lead_guest),
+      country_code:   country_code,
+      country_name:   country_name,
+      email:          Map.get(booking, :email),
+      phone:          Map.get(booking, :phone),
       rate_per_night: rate_per_night,
       room_nights:    room_nights,
       subtotal:       subtotal,
       tax:            tax,
+      tax_rate:       tax_rate,
       cleaning:       cleaning,
-      requests:       pick_requests(h),
-      arrival_est:    pick_arrival(h)
+      requests:       requests,
+      # No real ETA data exists yet — render as unknown, don't invent one.
+      arrival_est:    nil
     }
   end
 
-  defp pick_requests(h) do
-    [
-      Enum.at(@request_options, rem(h, length(@request_options))),
-      Enum.at(@request_options, rem(Bitwise.bsr(h, 3), length(@request_options)))
-    ]
-    |> Enum.uniq()
-    |> Enum.reject(&is_nil/1)
-  end
+  @doc """
+  Build the synthetic charge breakdown for a booking (room nights,
+  cleaning, tax) — presentational rows derived from its real pricing.
 
-  defp pick_arrival(h), do: Enum.at(@arrival_times, rem(h, length(@arrival_times)))
-
-  @doc "Build the list of charge + payment transactions for a booking."
+  Payments are NOT fabricated here: they come exclusively from the
+  `booking_transactions` ledger (legacy `paid` balances were backfilled
+  into the ledger as "Imported balance" rows).
+  """
   def txns_for(booking, today) do
     d       = details_for(booking)
     created = Date.add(today, -14 + rem(d.hash, 10))
@@ -187,32 +184,16 @@ defmodule Hospex.Content.BookingDetails do
         n -> "Rooms (#{n}) · #{d.room_nights} room-nights × #{fmt_money(d.rate_per_night)}"
       end
 
-    charges =
-      [
-        %{type: :charge, icon: :bed, label: rooms_label,
-          sub: posted, amount: d.subtotal, date: created},
-        d.cleaning > 0 && %{type: :charge, icon: :receipt, label: cleaning_label(booking),
-          sub: posted, amount: d.cleaning, date: created},
-        d.tax > 0 && %{type: :charge, icon: :receipt, label: "Taxes (10%)",
-          sub: posted, amount: d.tax, date: created}
-      ]
-      |> Enum.filter(& &1)
-
-    payments =
-      if booking.paid > 0 do
-        pd = Date.add(created, 1)
-        m  = Enum.at(@payment_methods, rem(hash_str(booking.lead_guest <> "m"), length(@payment_methods)))
-        ref = "PAY-#{1000 + rem(d.hash, 9000)}"
-        [%{
-          type: :payment, icon: m.icon, label: m.label,
-          sub: "Received #{fmt_short(pd)} · ##{ref}",
-          amount: booking.paid, date: pd
-        }]
-      else
-        []
-      end
-
-    charges ++ payments
+    [
+      %{type: :charge, icon: :bed, label: rooms_label,
+        sub: posted, amount: d.subtotal, date: created},
+      d.cleaning > 0 && %{type: :charge, icon: :receipt, label: cleaning_label(booking),
+        sub: posted, amount: d.cleaning, date: created},
+      d.tax > 0 && %{type: :charge, icon: :receipt,
+        label: "Taxes" <> if(d.tax_rate > 0, do: " (#{d.tax_rate}%)", else: ""),
+        sub: posted, amount: d.tax, date: created}
+    ]
+    |> Enum.filter(& &1)
   end
 
   defp cleaning_label(%{stays: [_]}), do: "Cleaning fee"

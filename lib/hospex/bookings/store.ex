@@ -10,10 +10,8 @@ defmodule Hospex.Bookings.Store do
     * `status`, `src`, `payment_collect` are stored as strings; converted
       to atoms at the boundary via `String.to_existing_atom/1` with a safe
       fallback so an unexpected DB value can't crash the calendar.
-    * `events`, `transactions` and `notes` are stubbed (empty list / nil)
-      — the audit log, payments history and staff-notes features were
-      dropped from scope; their underlying side effects on `paid` / `total`
-      / `status` are still persisted on the booking row.
+    * `events` (audit log) and `transactions` (payment/refund/charge
+      ledger) are real tables, preloaded newest-first on every read.
   """
 
   import Ecto.Query, only: [from: 2]
@@ -22,7 +20,7 @@ defmodule Hospex.Bookings.Store do
   alias Hospex.Bookings.{Booking, Stay, BookingEvent, BookingTransaction}
 
   @known_statuses ~w(paid partial unpaid in hold cancelled ota_collect)a
-  @known_srcs     ~w(direct BC AB EX DR ota)a
+  @known_srcs     ~w(direct BC AB EX DR ota block)a
   @known_collects ~w(property channel ota)a
   @known_event_kinds ~w(booking_created status_changed payment_recorded
                         notes_updated block_created block_release_changed
@@ -136,39 +134,55 @@ defmodule Hospex.Bookings.Store do
   end
 
   @doc """
-  Load → transform → persist. The transform function receives a plain
-  map shaped as `to_map/1` returns and must return the same shape (with
-  the same stay ids preserved for any stay that should remain).
+  Load → transform → persist, in one row-locked transaction. The
+  transform receives a plain map shaped as `to_map/1` returns and must
+  return either the same shape (with the same stay ids preserved for any
+  stay that should remain) or `{:error, reason}` to abort the mutation.
+
+  Returns `{:ok, fresh_map}` (re-fetched, so events / transactions
+  inserted in the same enclosing transaction are visible) or
+  `{:error, :not_found | reason}`. When called inside an outer
+  `Repo.transaction`, an abort here rolls the outer transaction back too.
   """
   def update_booking(booking_id, update_fn) when is_function(update_fn, 1) do
     Repo.transaction(fn ->
-      case Repo.get(Booking, booking_id) do
-        nil -> nil
+      # FOR UPDATE serializes concurrent mutations on the same booking.
+      # Without it this read-modify-write loses updates under READ
+      # COMMITTED: two simultaneous payments both read paid=N and the
+      # second commit silently erases the first.
+      case lock_booking(booking_id) do
+        nil ->
+          Repo.rollback(:not_found)
+
         b ->
           loaded = b |> Repo.preload(preloads()) |> to_map()
-          updated = update_fn.(loaded)
-          attrs = booking_attrs(updated)
 
-          b
-          |> Repo.preload(:stays)
-          |> Booking.changeset(attrs)
-          |> Repo.update!()
+          case update_fn.(loaded) do
+            {:error, reason} ->
+              Repo.rollback(reason)
 
-          # Re-fetch with full preloads so the caller sees fresh events
-          # / transactions / notes alongside the transform's changes.
-          b.id
-          |> get_booking()
-          |> case do
-            nil -> updated
-            fresh -> fresh
+            updated when is_map(updated) ->
+              attrs = booking_attrs(updated)
+
+              b
+              |> Repo.preload(:stays)
+              |> Booking.changeset(attrs)
+              |> Repo.update!()
+
+              case get_booking(b.id) do
+                nil -> updated
+                fresh -> fresh
+              end
           end
       end
     end)
-    |> case do
-      {:ok, result} -> result
-      {:error, reason} -> raise "update_booking failed: #{inspect(reason)}"
-    end
   end
+
+  defp lock_booking(id) when is_integer(id) do
+    Repo.one(from(b in Booking, where: b.id == ^id, lock: "FOR UPDATE"))
+  end
+
+  defp lock_booking(_), do: nil
 
   # ── Plain-map ↔ Ecto attrs conversion ────────────────────
 
@@ -245,7 +259,11 @@ defmodule Hospex.Bookings.Store do
       src:        safe_atom(s.src, @known_srcs, :direct),
       total:      s.total || 0,
       paid:       s.paid || 0,
-      subtotal:   s.subtotal || 0,
+      # nil means "no explicit per-stay split yet" — consumers fall back to
+      # an even split of the booking total. Coalescing to 0 here would make
+      # those fallbacks unreachable (0 is truthy) and zero out totals on
+      # re-aggregation.
+      subtotal:   s.subtotal,
       nightly_rates: parse_nightly_rates(s.nightly_rates),
       room_count: room_count
     }
@@ -321,7 +339,7 @@ defmodule Hospex.Bookings.Store do
       src:        to_str(Map.get(s, :src)),
       total:      Map.get(s, :total, 0),
       paid:       Map.get(s, :paid, 0),
-      subtotal:   Map.get(s, :subtotal, 0),
+      subtotal:   Map.get(s, :subtotal),
       nightly_rates: serialize_nightly_rates(Map.get(s, :nightly_rates, []))
     }
 
