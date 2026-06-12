@@ -292,10 +292,16 @@ button { font-family: inherit; color: inherit; }
   background: var(--bg-elev);
   overflow: hidden; flex-shrink: 0; position: relative;
 }
+.date-header > div { height: 100%; }
+.month-seg { position: relative; height: 100%; flex: none; }
+.month-seg .seg-days {
+  position: absolute; inset: 0;
+  display: grid; grid-auto-flow: column;
+}
 
 .date-cell {
-  display: flex; flex-direction: column; justify-content: center; align-items: center;
-  border-right: 1px solid var(--line); position: relative; padding: 6px 0; gap: 1px;
+  display: flex; flex-direction: column; justify-content: flex-end; align-items: center;
+  border-right: 1px solid var(--line); position: relative; padding: 6px 0 7px; gap: 1px;
 }
 .date-cell .dow {
   font-size: 10.5px; color: var(--ink-3); font-weight: 500;
@@ -309,10 +315,12 @@ button { font-family: inherit; color: inherit; }
 .date-cell[data-weekend="1"] { background: linear-gradient(to bottom, oklch(98% 0.004 250) 0%, var(--bg-elev) 100%); }
 .date-cell[data-today="1"] .dow { color: var(--accent); }
 .date-cell[data-today="1"] .dom { color: var(--accent); }
-.date-cell .month-tag {
-  position: absolute; top: 6px; left: 8px;
-  font-size: 10px; font-weight: 600; color: var(--ink-3);
-  letter-spacing: 0.04em; text-transform: uppercase;
+.month-seg .month-tag {
+  position: sticky; left: 8px;
+  display: inline-block; margin: 4px 0 0 8px;
+  font-size: 9px; font-weight: 600; color: var(--ink-3);
+  letter-spacing: 0.06em; text-transform: uppercase; line-height: 1;
+  z-index: 2; pointer-events: none;
 }
 
 .grid-scroll { flex: 1; min-height: 0; overflow: auto; position: relative; }

@@ -176,21 +176,33 @@
     <%!-- Calendar grid --%>
     <div class="calendar">
 
-      <%!-- Date header (horizontal scroll synced to grid) --%>
+      <%!-- Date header (horizontal scroll synced to grid). One segment per
+           month; the month tag is sticky so it stays pinned at the left edge
+           while scrolling and gets pushed out by the next month's tag.
+           The extra cell of width gives the header at least the grid body's
+           scroll range: pills and the hover ghost bleed cell_w/2 past the
+           last column (noon offset), and the body's vertical scrollbar can
+           shrink its client width by up to ~17px more. Without the headroom
+           the grid out-scrolls the header and the columns shear at the right
+           edge; the header itself never scrolls past the grid since it only
+           mirrors the grid's scrollLeft. --%>
       <div class="date-header" id="date-header">
-        <div style={"display:grid;grid-auto-flow:column;grid-auto-columns:#{@cell_w}px;width:#{@total_grid_w}px"}>
-          <%= for {date, i} <- Enum.with_index(@dates) do %>
-            <% is_today     = Date.compare(date, @today) == :eq %>
-            <% weekend      = is_weekend(date) %>
-            <% month_start  = date.day == 1 or i == 0 %>
-            <div class="date-cell"
-                 data-today={if is_today, do: "1", else: "0"}
-                 data-weekend={if weekend, do: "1", else: "0"}>
-              <%= if month_start do %>
-                <span class="month-tag"><%= month_abbr(date) %></span>
-              <% end %>
-              <span class="dow"><%= dow_abbr(date) %></span>
-              <span class="dom"><%= date.day %></span>
+        <div style={"display:flex;width:#{@total_grid_w + @cell_w}px"}>
+          <%= for month_dates <- Enum.chunk_by(@dates, &{&1.year, &1.month}) do %>
+            <div class="month-seg" style={"width:#{length(month_dates) * @cell_w}px"}>
+              <span class="month-tag"><%= month_abbr(hd(month_dates)) %></span>
+              <div class="seg-days" style={"grid-auto-columns:#{@cell_w}px"}>
+                <%= for date <- month_dates do %>
+                  <% is_today = Date.compare(date, @today) == :eq %>
+                  <% weekend  = is_weekend(date) %>
+                  <div class="date-cell"
+                       data-today={if is_today, do: "1", else: "0"}
+                       data-weekend={if weekend, do: "1", else: "0"}>
+                    <span class="dow"><%= dow_abbr(date) %></span>
+                    <span class="dom"><%= date.day %></span>
+                  </div>
+                <% end %>
+              </div>
             </div>
           <% end %>
         </div>
