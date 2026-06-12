@@ -41,6 +41,7 @@ defmodule Hospex.Content.Property do
   defp property_file,        do: Path.join(property_dir(), "property.yaml")
   defp room_types_dir,       do: Path.join(property_dir(), "room_types")
   defp rooms_dir,            do: Path.join(property_dir(), "rooms")
+  defp rate_plans_dir,       do: Path.join(property_dir(), "rate_plans")
   defp room_type_file(id),   do: Path.join(room_types_dir(), "#{id}.yaml")
   defp room_file(id),        do: Path.join(rooms_dir(), "#{id}.yaml")
 
@@ -132,6 +133,12 @@ defmodule Hospex.Content.Property do
 
   def list_room_types do
     list_dir(room_types_dir())
+  end
+
+  # ── Rate Plans (read-only — no editor UI yet) ────────────────
+
+  def list_rate_plans do
+    list_dir(rate_plans_dir())
   end
 
   def get_room_type(id) do

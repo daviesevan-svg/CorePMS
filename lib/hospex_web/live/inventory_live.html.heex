@@ -173,7 +173,7 @@
                 <% is_last = last_visible_metric?(@visible_metrics, :rate) %>
                 <div class="metric-row" data-last={if is_last, do: "1", else: "0"}>
                   <%= for {date, ci} <- Enum.with_index(@dates) do %>
-                    <% cell = cell_for(group.id, date, @overrides) %>
+                    <% cell = cell_for(@plan, group.id, date, @overrides) %>
                     <% avail = Map.get(@availability, {group.id, date}, rooms_count) %>
                     <% editing? = editing_cell?(@editing, group.id, date, :rate) %>
                     <div class={"cell rate"}
@@ -205,7 +205,7 @@
                 <% is_last = last_visible_metric?(@visible_metrics, :min_stay) %>
                 <div class="metric-row" data-last={if is_last, do: "1", else: "0"}>
                   <%= for {date, ci} <- Enum.with_index(@dates) do %>
-                    <% cell = cell_for(group.id, date, @overrides) %>
+                    <% cell = cell_for(@plan, group.id, date, @overrides) %>
                     <% editing? = editing_cell?(@editing, group.id, date, :min_stay) %>
                     <div class={"cell minstay"}
                          data-weekend={if is_weekend(date), do: "1", else: "0"}
@@ -234,7 +234,7 @@
                 <% is_last = last_visible_metric?(@visible_metrics, :cta) %>
                 <div class="metric-row" data-last={if is_last, do: "1", else: "0"}>
                   <%= for {date, ci} <- Enum.with_index(@dates) do %>
-                    <% cell = cell_for(group.id, date, @overrides) %>
+                    <% cell = cell_for(@plan, group.id, date, @overrides) %>
                     <div class={"cell bool cta"} data-weekend={if is_weekend(date), do: "1", else: "0"}
                          data-on={if cell.cta, do: "1", else: "0"}
                          data-selected={if in_selection?(@selection, group.id, :cta, date), do: "1", else: "0"}
@@ -258,7 +258,7 @@
                 <% is_last = last_visible_metric?(@visible_metrics, :ctd) %>
                 <div class="metric-row" data-last={if is_last, do: "1", else: "0"}>
                   <%= for {date, ci} <- Enum.with_index(@dates) do %>
-                    <% cell = cell_for(group.id, date, @overrides) %>
+                    <% cell = cell_for(@plan, group.id, date, @overrides) %>
                     <div class={"cell bool ctd"} data-weekend={if is_weekend(date), do: "1", else: "0"}
                          data-on={if cell.ctd, do: "1", else: "0"}
                          data-selected={if in_selection?(@selection, group.id, :ctd, date), do: "1", else: "0"}
@@ -281,7 +281,7 @@
               <%= if MapSet.member?(@visible_metrics, :closed) do %>
                 <div class="metric-row" data-last="1">
                   <%= for {date, ci} <- Enum.with_index(@dates) do %>
-                    <% cell = cell_for(group.id, date, @overrides) %>
+                    <% cell = cell_for(@plan, group.id, date, @overrides) %>
                     <div class={"cell bool closed"} data-weekend={if is_weekend(date), do: "1", else: "0"}
                          data-on={if cell.closed, do: "1", else: "0"}
                          data-selected={if in_selection?(@selection, group.id, :closed, date), do: "1", else: "0"}

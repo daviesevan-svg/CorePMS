@@ -36,7 +36,10 @@ defmodule Hospex.Inventory do
   def put_overrides([]), do: :ok
   def put_overrides(changes) when is_list(changes) do
     Store.put_many(changes)
-    broadcast({:overrides_changed, length(changes)})
+    # Carry the touched cells (incl. which field) so consumers (e.g. the
+    # Channex listener) can push field-level deltas instead of
+    # re-syncing the whole horizon.
+    broadcast({:overrides_changed, Enum.map(changes, fn {rt, date, f, _v} -> {rt, date, f} end)})
     :ok
   end
 

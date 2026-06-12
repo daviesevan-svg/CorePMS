@@ -52,6 +52,9 @@ defmodule Hospex.MixProject do
       # Email (magic-link login)
       {:swoosh, "~> 1.16"},
 
+      # HTTP client (Channex channel manager API)
+      {:req, "~> 0.5"},
+
       # Observability
       {:telemetry_metrics, "~> 0.6"},
       {:telemetry_poller, "~> 1.0"},

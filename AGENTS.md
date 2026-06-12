@@ -3,7 +3,7 @@
 Phoenix/Elixir hotel PMS. Open-source (MIT), AI-friendly, designed so other hotels can fork and customize. Greenfield, prototyped with Claude Code.
 
 ## Stack
-Elixir 1.18 / Phoenix 1.7 / LiveView / PostgreSQL 16 / Oban / ex_json_schema / yaml_elixir
+Elixir 1.18 / Phoenix 1.7 / LiveView / PostgreSQL 16 / Oban / ex_json_schema / yaml_elixir / req
 
 ## Architecture
 - **Git repos are the canonical source of truth** for property content (one public GitHub repo per property).
@@ -46,6 +46,15 @@ Elixir 1.18 / Phoenix 1.7 / LiveView / PostgreSQL 16 / Oban / ex_json_schema / y
 - `Hospex.Bookings.BookingEvent` (audit log) and `BookingTransaction` (ledger) have `on_delete: :delete_all` FKs to `bookings`. Preloaded on every read, newest-first. `notes` is a column on bookings.
 - Atom safety: every string→atom conversion goes through a whitelist with `String.to_existing_atom/1` + rescue + fallback. Block bookings use `src: "block"` (in the whitelist) — never `"—"`.
 
+## Channex integration (channel manager → OTAs)
+- Config: `CHANNEX_API_KEY` + `CHANNEX_BASE_URL` (default staging.channex.io) via `config/runtime.exs`, which also loads `.env` (gitignored) in dev/test. **The API key must never be committed — the repo is public.** Integration is fully inert when the key is unset.
+- Modules under `lib/hospex/channex/`: `Client` (Req wrapper; tests stub transport via `req_options: [plug: {Req.Test, ...}]`), `Link` (the `channex_links` table maps local YAML slugs / booking ids ↔ Channex UUIDs; kind ∈ property/room_type/rate_plan/booking), `Hospex.Channex` (content sync + ARI push), `Ingest` (inbound bookings), `Listener` (PubSub→Oban debounce), `Workers` (Oban).
+- `mix channex.sync` = one-shot full sync: upserts property/room types/rate plans (POST first time, PUT after, via links), then pushes availability + rates for 365 days. **Only ONE rate plan is synced per room type** (`CHANNEX_RATE_PLAN`, default `flexible`; falls back to first plan by id) — multi-plan sync is deferred until the inventory UI can show plans.
+- **Outbound flow:** PubSub events → `Listener` (3s debounce, accumulates scopes) → `Workers.PushAri` (queue `:channex`, unique 15s). **Pushes are scoped to what changed:** booking events → availability only (tiny after run-length compression); inventory override edits → `push_restrictions_for/1` delta for just the touched `{room_type, date, field}` cells, sending ONLY the changed Channex keys (a price edit sends `rate` alone — Channex applies partial restriction updates; past dates dropped — Channex rejects them); content/YAML edits → full ARI. Availability comes from non-cancelled stays in Postgres (holds count as occupied), rates from `Hospex.Content.Pricing` (rate-plan YAML: base × seasonal × dow; sent in cents). Hourly cron does a full drift-correcting push.
+- **Inbound flow:** cron polls `booking_revisions/feed` every minute → `Ingest.apply_revision` → ack. `new` creates a local booking (room auto-assigned within the mapped type, preferring free rooms; falls back to first room and lets the calendar's overbooking lane flag it; `src` mapped Booking.com→BC, Airbnb→AB, Expedia→EX, else ota). `cancelled` cancels via the booking link. `modified` is logged + acked but NOT applied (needs a reconciliation UI). Failed revisions stay un-acked and retry next poll. Account-wide feed: revisions for properties without a local link are acked + skipped.
+- **One price, everywhere:** the inventory page's defaults come from `Hospex.Content.InventoryDefaults` (rate/min-stay via `Pricing` from the primary plan — no more MockInventory), and `push_restrictions` layers the same inventory overrides on top (rate, min_stay, closed→stop_sell, cta/ctd→closed_to_arrival/departure). What staff see on /inventory is exactly what the OTAs get; inventory edits push live via the Listener. Caveat: overrides live in the process-local Agent, so they vanish on restart and the next push reverts Channex to YAML-computed values (see Known follow-ups).
+- Staging test account: property "Le Petit Madelein" `7f99c5c3-6147-449e-8bbd-82fd22e2baf6`. Test inbound bookings are created manually in the Channex staging dashboard (Applications → "Booking CRS" app → Create) — there's no injection API.
+
 ## Settings (YAML-backed)
 - `/settings/property`, `/settings/room-types`, `/settings/rooms` edit YAML in the configured property dir.
 - `Hospex.Content.Property` reads/writes YAML; every write validates against the JSON Schema via `Hospex.Schema.Validator` before touching disk.
@@ -86,7 +95,7 @@ The esbuild `--watch` watchers occasionally miss edits to `assets/js/app.js` / `
 
 ### Known follow-ups
 - **Make `MIX_ENV=prod` build.** Three blockers: no `config/prod.exs` (config import fails); the router's `if Application.compile_env(:hospex, :dev_routes)` block isn't DCE'd while `phoenix_live_dashboard` is `only: [:dev, :test]`; the committed LiveView `signing_salt` in `config.exs` is used in prod (move to runtime env, like `secret_key_base`). Production also needs a real Swoosh mail adapter in `runtime.exs` for login emails.
-- **Inventory overrides are process-local.** `Hospex.Inventory.Store` is still an Agent — rate/min-stay/closure edits vanish on restart. Move to Postgres (the bookings layer shows the pattern).
+- **Inventory overrides are process-local.** `Hospex.Inventory.Store` is still an Agent — rate/min-stay/closure edits vanish on restart. Move to Postgres (the bookings layer shows the pattern). Now higher-stakes: overrides are pushed to Channex, so a restart silently reverts OTA rates to YAML-computed values on the next push.
 - **Server-side availability validation.** Drag-drop / quick-create accept any room/dates/price from the client; overlaps become silent overbookings flagged after the fact. Validate on write; make true conflicts an explicit confirm.
 - **Hot-path performance.** Calendar reads preload the ever-growing events/transactions on every load (split preloads: calendar needs only `:stays`); `Property.room_groups/0` re-parses every YAML file per interaction (cache in ETS/persistent_term, invalidate from the `"content"` PubSub topic); computed check-out fragments can't use indexes (generated `check_out` column).
 - **DB-backed search + windowed bookings page.** Calendar search only matches the loaded window; `/bookings` loads all bookings and re-renders the whole table per keystroke (wants `stream` + DB-side filter/sort).
@@ -96,6 +105,8 @@ The esbuild `--watch` watchers occasionally miss edits to `assets/js/app.js` / `
 - **Bed-configuration, amenities, photos editors** in Settings — preserved on round-trip but not editable in the UI. Bed configs are required by the room_type schema; new types currently get a hardcoded single `double` bed to satisfy `minItems: 1`.
 - **Hidden coupling on room-type IDs.** Use `Map.get` with a fallback, not `Map.fetch!`, at any boundary that consumes IDs from YAML.
 - **Oban workers** for `git_sync` (push YAML edits to property's GitHub repo) and `media_ingest` (photo uploads to S3) — queues are configured but no worker modules exist.
+- **Channex: apply `modified` revisions.** OTA modifications are currently logged + acked but not applied — needs date/room/price reconciliation (and a UI for conflicts). Also: switch inbound from per-minute polling to Channex webhooks; a `/settings/channels` page showing sync status + link health; sync all rate plans (not just the primary `CHANNEX_RATE_PLAN`) once the inventory UI grows a plan dimension.
+- **Channex sell-state guard.** Availability pushes count holds as occupied but nothing stops a stop-sell race: a local booking made between pushes can collide with an OTA booking for the last room. The ingest path deliberately accepts the overbooking and lets the calendar flag it — consider an explicit alert (email/toast) when ingest had to place into an occupied room.
 - **`bookings_live.ex` `handle_event/3` grouping warning.** Same fix pattern as the calendar refactor.
 - **Pre-existing test failure:** `validator_test.exs:133` ("property — required fields, missing schema_version") fails on a clean tree — predates all recent work; every suite run shows "N tests, 1 failure" because of it.
 

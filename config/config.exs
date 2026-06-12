@@ -20,10 +20,21 @@ config :hospex, HospexWeb.Endpoint,
 
 config :hospex, Oban,
   repo: Hospex.Repo,
-  plugins: [Oban.Plugins.Pruner],
+  plugins: [
+    Oban.Plugins.Pruner,
+    {Oban.Plugins.Cron,
+     crontab: [
+       # Channex: poll OTA booking feed every minute; hourly full ARI
+       # refresh (drift correction — incremental pushes come from
+       # Hospex.Channex.Listener). Both no-op when CHANNEX_API_KEY is unset.
+       {"* * * * *", Hospex.Channex.Workers.PollBookings},
+       {"0 * * * *", Hospex.Channex.Workers.PushAri}
+     ]}
+  ],
   queues: [
     git_sync: 5,       # Commits content to GitHub repos
     media_ingest: 3,   # Processes uploaded photos to S3
+    channex: 1,        # Channel manager pushes/polls (serialized)
     default: 10
   ]
 

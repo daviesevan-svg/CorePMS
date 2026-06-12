@@ -1,7 +1,7 @@
 defmodule HospexWeb.InventoryLive do
   use HospexWeb, :live_view
 
-  alias Hospex.Content.MockInventory
+  alias Hospex.Content.{InventoryDefaults, Pricing}
   alias Hospex.Bookings
 
   @months_abbr ~w(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec)
@@ -25,6 +25,7 @@ defmodule HospexWeb.InventoryLive do
       |> assign(today: today, anchor: anchor, view_span: 14)
       |> assign(room_groups: room_groups, all_stays: stays)
       |> assign(collapsed: %{}, overrides: Hospex.Inventory.load(), editing: nil, selection: nil)
+      |> assign(plan: Pricing.primary_plan())
       |> assign(visible_metrics: MapSet.new([:avail, :rate]))
       |> assign(dp_open: false, dp_month: Date.beginning_of_month(today))
       |> derive_view()
@@ -223,7 +224,7 @@ defmodule HospexWeb.InventoryLive do
     case Date.from_iso8601(iso) do
       {:ok, d} ->
         f       = String.to_existing_atom(field)
-        current = MockInventory.cell(rt, d, socket.assigns.overrides)[f]
+        current = InventoryDefaults.cell(socket.assigns.plan, rt, d, socket.assigns.overrides)[f]
         new_val = not current
         dates   = targets_for(socket.assigns.selection, rt, f, d)
 
@@ -265,7 +266,7 @@ defmodule HospexWeb.InventoryLive do
         first_date = Enum.min_by(dates, &Date.to_erl/1)
         originals =
           Map.new(dates, fn d ->
-            {d, MockInventory.cell(rt, d, socket.assigns.overrides)[f]}
+            {d, InventoryDefaults.cell(socket.assigns.plan, rt, d, socket.assigns.overrides)[f]}
           end)
 
         {:noreply,
@@ -342,7 +343,7 @@ defmodule HospexWeb.InventoryLive do
     dates     = Enum.map(0..(span - 1), &Date.add(anchor, &1))
     cell_w    = cell_width(span)
     today_col = today_col(today, anchor, span)
-    avail     = MockInventory.availability(room_groups, stays, dates)
+    avail     = InventoryDefaults.availability(room_groups, stays, dates)
 
     assign(socket,
       dates: dates,
@@ -387,11 +388,11 @@ defmodule HospexWeb.InventoryLive do
     end
   end
 
-  def cell_for(rt_id, date, overrides) do
-    MockInventory.cell(rt_id, date, overrides)
+  def cell_for(plan, rt_id, date, overrides) do
+    InventoryDefaults.cell(plan, rt_id, date, overrides)
   end
 
-  def avail_level(n, size), do: MockInventory.avail_level(n, size)
+  def avail_level(n, size), do: InventoryDefaults.avail_level(n, size)
 
   def all_metrics, do: @all_metrics
 

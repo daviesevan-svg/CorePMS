@@ -1,8 +1,38 @@
 import Config
 
+# Dev/test convenience: load KEY=VALUE pairs from .env (gitignored) so
+# secrets like the Channex API key never land in committed config.
+# Real environment variables always win over .env entries.
+if config_env() in [:dev, :test] do
+  env_file = Path.expand("../.env", __DIR__)
+
+  if File.exists?(env_file) do
+    env_file
+    |> File.read!()
+    |> String.split("\n", trim: true)
+    |> Enum.reject(&String.starts_with?(&1, "#"))
+    |> Enum.each(fn line ->
+      with [key, value] <- String.split(line, "=", parts: 2),
+           nil <- System.get_env(String.trim(key)) do
+        System.put_env(String.trim(key), String.trim(value))
+      end
+    end)
+  end
+end
+
 if dir = System.get_env("PROPERTY_DIR") do
   config :hospex, :property_dir, dir
 end
+
+# Channex channel manager (https://docs.channex.io). Integration is
+# inert unless CHANNEX_API_KEY is set.
+config :hospex, Hospex.Channex,
+  api_key: System.get_env("CHANNEX_API_KEY"),
+  base_url: System.get_env("CHANNEX_BASE_URL", "https://staging.channex.io")
+
+# The plan whose prices the inventory page shows and the channel
+# manager sells (Pricing.primary_plan/0).
+config :hospex, :primary_rate_plan, System.get_env("CHANNEX_RATE_PLAN", "flexible")
 
 if config_env() == :prod do
   database_url =

@@ -4,7 +4,7 @@ defmodule Hospex.Inventory.Store do
   pricing + restrictions edited from the Inventory page.
 
   Mirrors `Hospex.Bookings.Store`: an Agent holds a plain map shaped
-  `%{{rt_id, %Date{}} => %{field => value}}`. Same shape MockInventory
+  `%{{rt_id, %Date{}} => %{field => value}}`. Same shape InventoryDefaults
   consumes, so callers don't need to convert.
   """
   use Agent

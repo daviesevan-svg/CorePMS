@@ -9,6 +9,7 @@ defmodule Hospex.Application do
       {Phoenix.PubSub, name: Hospex.PubSub},
       Hospex.Inventory.Store,
       {Oban, Application.fetch_env!(:hospex, Oban)},
+      Hospex.Channex.Listener,
       HospexWeb.Endpoint
     ]
 
