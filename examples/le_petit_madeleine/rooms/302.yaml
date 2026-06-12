@@ -1,0 +1,8 @@
+schema_version: "1.0"
+id: "302"
+floor: 3
+name:
+  en: "302"
+room_type_id: classic-room
+section: Floor 3
+view: partial_sea
