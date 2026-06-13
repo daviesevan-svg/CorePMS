@@ -109,6 +109,15 @@
                 <span class="label"><%= metric_label(m) %></span>
                 <span class="sub"><%= metric_sub(m) %></span>
               </div>
+
+              <%= if m == :rate do %>
+                <%= for occ <- derived_occupancies(group.id) do %>
+                  <div class="rt-metric derived">
+                    <span class="label"><%= occ %> guest<%= if occ > 1, do: "s" %></span>
+                    <span class="sub">AUTO</span>
+                  </div>
+                <% end %>
+              <% end %>
             <% end %>
           </div>
         <% end %>
@@ -168,10 +177,11 @@
                 </div>
               <% end %>
 
-              <%!-- Rate --%>
+              <%!-- Rate (editable base occupancy) --%>
               <%= if MapSet.member?(@visible_metrics, :rate) do %>
+                <% derived = derived_occupancies(group.id) %>
                 <% is_last = last_visible_metric?(@visible_metrics, :rate) %>
-                <div class="metric-row" data-last={if is_last, do: "1", else: "0"}>
+                <div class="metric-row" data-last={if is_last and derived == [], do: "1", else: "0"}>
                   <%= for {date, ci} <- Enum.with_index(@dates) do %>
                     <% cell = cell_for(@plan, group.id, date, @overrides) %>
                     <% avail = Map.get(@availability, {group.id, date}, rooms_count) %>
@@ -198,6 +208,21 @@
                     </div>
                   <% end %>
                 </div>
+
+                <%!-- Derived per-occupancy prices (read-only; logic from settings) --%>
+                <%= for {occ, oi} <- Enum.with_index(derived) do %>
+                  <% occ_last = is_last and oi == length(derived) - 1 %>
+                  <div class="metric-row" data-last={if occ_last, do: "1", else: "0"}>
+                    <%= for date <- @dates do %>
+                      <% price = occ_rate(@plan, group.id, date, @overrides, occ) %>
+                      <div class="cell rate derived"
+                           data-weekend={if is_weekend(date), do: "1", else: "0"}
+                           title={"#{occ} guest price — derived from the base rate and the rate plan's occupancy fees"}>
+                        <span class="cell-value"><%= if price > 0, do: price, else: "—" %></span>
+                      </div>
+                    <% end %>
+                  </div>
+                <% end %>
               <% end %>
 
               <%!-- Min stay --%>

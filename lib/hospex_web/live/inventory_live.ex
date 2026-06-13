@@ -392,6 +392,23 @@ defmodule HospexWeb.InventoryLive do
     InventoryDefaults.cell(plan, rt_id, date, overrides)
   end
 
+  def base_occupancy(rt_id), do: Pricing.base_occupancy(rt_id)
+
+  # Occupancies shown as read-only DERIVED rate rows — all tiers except
+  # the editable base occupancy (the "Rate" row).
+  def derived_occupancies(rt_id) do
+    base = Pricing.base_occupancy(rt_id)
+    Enum.reject(1..Pricing.max_adults(rt_id), &(&1 == base))
+  end
+
+  # Per-occupancy price derived from the cell's base-occupancy rate
+  # (override or YAML) + the plan's occupancy fees. Clamped at 0.
+  def occ_rate(plan, rt_id, date, overrides, occ) do
+    base_rate = cell_for(plan, rt_id, date, overrides).rate
+    rates = plan |> Pricing.occupancy_rates(rt_id, base_rate) |> Map.new()
+    max(Map.get(rates, occ, base_rate), 0)
+  end
+
   def avail_level(n, size), do: InventoryDefaults.avail_level(n, size)
 
   def all_metrics, do: @all_metrics

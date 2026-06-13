@@ -38,6 +38,9 @@
   flex-shrink: 0;
 }
 .room-type[data-collapsed="1"] .rt-metric { display: none; }
+/* Read-only derived per-occupancy rate rows */
+.rt-metric.derived { padding-left: 40px; }
+.rt-metric.derived .label { font-size: 12px; color: var(--ink-3); font-weight: 500; }
 
 /* Date-header inner wrapper for inventory page */
 .date-header-inner {
@@ -60,6 +63,12 @@
 .metric-row[data-last="1"] { border-bottom: 1px solid var(--line-strong); }
 
 /* ── Inventory cells ─────────────────────────────────────────── */
+.cell.derived {
+  cursor: default;
+  background: var(--bg-sunk);
+  color: var(--ink-3);
+}
+.cell.derived .cell-value { font-variant-numeric: tabular-nums; }
 .cell {
   border-right: 1px solid var(--line);
   display: flex; align-items: center; justify-content: center;
