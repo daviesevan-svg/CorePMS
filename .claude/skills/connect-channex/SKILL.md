@@ -10,6 +10,15 @@ of AGENTS.md for architecture). This skill is the setup + verification
 playbook for connecting a fork to a NEW Channex account, with the
 gotchas baked in.
 
+> **Upstream / canonical.** The vendor-agnostic Channex knowledge —
+> verified API shapes, the integration architecture, and the channel
+> connect/mapping flow — lives in the standalone skill repo
+> **`daviesevan-svg/channex-claude-skill`** (the `channex-pms-integration`
+> plugin + its `references/api.md`). Treat that as the source of truth
+> for the Channex API itself; this file is the **CorePMS-specific**
+> layer (module names, file paths, our LiveViews). When you learn
+> something general about the Channex API here, port it upstream too.
+
 ## Setup
 
 1. **Credentials.** The user needs a Channex account — staging
