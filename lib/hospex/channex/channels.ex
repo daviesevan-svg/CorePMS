@@ -21,15 +21,32 @@ defmodule Hospex.Channex.Channels do
   alias Hospex.Channex.Client
   alias Hospex.Content.{Pricing, Property}
 
-  # OTAs offered in the connect flow. Only Booking.com is enabled today;
-  # the rest are placeholders so the picker shows what's coming.
+  # OTA catalogue shown on the connect page. Only Booking.com is wired
+  # to the backend today (`enabled: true`); the rest render as
+  # "coming soon". `brand` tints the logo tile + header band; `chips`
+  # are the small feature pills.
   @otas [
-    %{id: "BookingCom", name: "Booking.com", enabled: true},
-    %{id: "AirBnB", name: "Airbnb", enabled: false},
-    %{id: "ExpediaRapid", name: "Expedia", enabled: false}
+    %{id: "BookingCom", name: "Booking.com", enabled: true, brand: "#003580", mono: "B.",
+      category: "Global OTA", chips: ["2-way sync", "Instant confirm"],
+      description: "The world’s largest accommodation marketplace — broad reach across every market."},
+    %{id: "AirBnB", name: "Airbnb", enabled: false, brand: "#FF5A5F", mono: "a",
+      category: "Short stays", chips: ["2-way sync"],
+      description: "Reach short-stay and experience travellers across 220+ countries."},
+    %{id: "ExpediaRapid", name: "Expedia Group", enabled: false, brand: "#11335E", mono: "E",
+      category: "Global OTA", chips: ["2-way sync", "Instant confirm"],
+      description: "One connection covers Expedia, Hotels.com and Vrbo demand."},
+    %{id: "Agoda", name: "Agoda", enabled: false, brand: "#5A2D8C", mono: "a",
+      category: "APAC OTA", chips: ["2-way sync"],
+      description: "Deep demand across Asia-Pacific and growing global markets."},
+    %{id: "GoogleHotelAds", name: "Google Hotel Ads", enabled: false, brand: "#1A73E8", mono: "G",
+      category: "Metasearch", chips: ["Metasearch", "Real-time rates"],
+      description: "Show live rates and availability right inside Search & Maps."},
+    %{id: "TripCom", name: "Trip.com", enabled: false, brand: "#287DFB", mono: "T",
+      category: "APAC OTA", chips: ["2-way sync"],
+      description: "Tap the largest travel platform in China and wider Asia."}
   ]
 
-  @doc "OTAs shown in the connect flow (static; Booking.com enabled)."
+  @doc "OTA catalogue for the connect page (static; Booking.com enabled)."
   def otas, do: @otas
 
   @doc "The `kind: \"channel\"` local id for an OTA channel code."

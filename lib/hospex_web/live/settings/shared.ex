@@ -53,6 +53,7 @@ defmodule HospexWeb.Settings.Shared do
   def icon(%{name: :chev_left} = assigns), do: ~H|<svg class={@class} width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5 5.5 8 10 12.5"/></svg>|
   def icon(%{name: :chev_right} = assigns), do: ~H|<svg class={@class} width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5 10.5 8 6 12.5"/></svg>|
   def icon(%{name: :trash} = assigns),   do: ~H|<svg class={@class} width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h10M6.5 4V2.5h3V4M5 4l.5 9h5L11 4M7 7v4M9 7v4"/></svg>|
+  def icon(%{name: :refresh} = assigns), do: ~H|<svg class={@class} width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M13.5 8a5.5 5.5 0 1 1-1.6-3.9M13.5 2.5V5H11"/></svg>|
 
   # ── Top-level chrome ───────────────────────────────────────────
 

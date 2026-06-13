@@ -19,34 +19,65 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
   def mount(_params, _session, socket) do
     info = Channex.connection_info()
 
-    {:ok,
-     assign(socket,
-       step: 1,
-       info: info,
-       otas: Channels.otas(),
-       channel: "BookingCom",
-       form: %{"hotel_id" => "", "title" => "", "group_id" => ""},
-       testing?: false,
-       test_result: nil,
-       loading_map?: false,
-       map_error: nil,
-       mapping: nil,
-       creating?: false,
-       result: nil,
-       error: nil
-     )}
+    socket =
+      assign(socket,
+        step: 1,
+        info: info,
+        channel: "BookingCom",
+        # catalogue (step 1)
+        filter: "all",
+        query: "",
+        selected: nil,
+        connected_by_code: %{},
+        # wizard (steps 2–4)
+        form: %{"hotel_id" => "", "title" => "", "group_id" => ""},
+        testing?: false,
+        test_result: nil,
+        loading_map?: false,
+        map_error: nil,
+        mapping: nil,
+        creating?: false,
+        result: nil,
+        error: nil
+      )
+
+    socket =
+      if connected?(socket) and info.enabled? do
+        start_async(socket, :catalog, &Channels.connected/0)
+      else
+        socket
+      end
+
+    {:ok, socket}
   end
 
   # ── Navigation ────────────────────────────────────────────────
 
   @impl true
-  def handle_event("select_channel", %{"id" => id}, socket) do
-    ota = Enum.find(socket.assigns.otas, &(&1.id == id))
+  def handle_event("set_filter", %{"filter" => filter}, socket) do
+    {:noreply, assign(socket, filter: filter)}
+  end
 
-    if ota && ota.enabled do
-      {:noreply, assign(socket, channel: id, step: 2, test_result: nil)}
-    else
-      {:noreply, socket}
+  def handle_event("search", %{"q" => q}, socket) do
+    {:noreply, assign(socket, query: q)}
+  end
+
+  # Only "connect"-status (available) cards are selectable; single-select toggle.
+  def handle_event("select_card", %{"id" => id}, socket) do
+    selectable? = Enum.any?(catalog(socket), &(&1.id == id and &1.status == "connect"))
+    selected = if selectable? and socket.assigns.selected != id, do: id, else: nil
+    {:noreply, assign(socket, selected: selected)}
+  end
+
+  def handle_event("clear_selection", _, socket) do
+    {:noreply, assign(socket, selected: nil)}
+  end
+
+  # Hand off the selected channel into the wizard (step 2).
+  def handle_event("continue", _, socket) do
+    case socket.assigns.selected do
+      nil -> {:noreply, socket}
+      id -> {:noreply, assign(socket, channel: id, step: 2, test_result: nil)}
     end
   end
 
@@ -193,6 +224,72 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
     {:noreply, assign(socket, creating?: false, error: "Create crashed: #{inspect(reason)}")}
   end
 
+  def handle_async(:catalog, {:ok, {:ok, list}}, socket) when is_list(list) do
+    by_code = Map.new(list, fn ch -> {channel_code(ch), channel_state(ch)} end)
+    {:noreply, assign(socket, connected_by_code: by_code)}
+  end
+
+  def handle_async(:catalog, _other, socket), do: {:noreply, socket}
+
+  # ── catalogue ─────────────────────────────────────────────────
+
+  @filters [
+    {"all", "All"},
+    {"connected", "Connected"},
+    {"progress", "In progress"},
+    {"connect", "Available"},
+    {"soon", "Coming soon"}
+  ]
+
+  defp filters, do: @filters
+
+  # Each OTA's catalogue card status derived from live channel state:
+  # an active channel → connected; a created-but-inactive one → progress;
+  # otherwise enabled → connect (available), else soon.
+  defp catalog(%{assigns: assigns}), do: catalog(assigns)
+
+  defp catalog(assigns) do
+    by_code = assigns.connected_by_code
+
+    Enum.map(Channels.otas(), fn ota ->
+      status =
+        cond do
+          by_code[ota.id] == "active" -> "connected"
+          Map.has_key?(by_code, ota.id) -> "progress"
+          ota.enabled -> "connect"
+          true -> "soon"
+        end
+
+      Map.put(ota, :status, status)
+    end)
+  end
+
+  defp catalog_counts(catalog) do
+    base = %{"all" => length(catalog), "connected" => 0, "progress" => 0, "connect" => 0, "soon" => 0}
+    Enum.reduce(catalog, base, fn ch, acc -> Map.update(acc, ch.status, 1, &(&1 + 1)) end)
+  end
+
+  defp visible_channels(catalog, filter, query) do
+    q = query |> to_string() |> String.downcase()
+
+    Enum.filter(catalog, fn ch ->
+      (filter == "all" or ch.status == filter) and
+        (q == "" or String.contains?(String.downcase(ch.name), q))
+    end)
+  end
+
+  defp channel_code(ch), do: get_in(ch, ["attributes", "channel"]) || ch["channel"]
+
+  defp channel_state(ch) do
+    attrs = Map.get(ch, "attributes", %{})
+
+    cond do
+      attrs["state"] -> attrs["state"]
+      attrs["is_active"] == true -> "active"
+      true -> "inactive"
+    end
+  end
+
   # ── helpers ───────────────────────────────────────────────────
 
   defp goto_mapping(socket) do
@@ -227,6 +324,14 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
   defp included_count(nil), do: 0
   defp included_count(mapping), do: Enum.count(mapping.rows, & &1.include)
 
+  defp chip_icon(label) do
+    cond do
+      String.contains?(label, "Metasearch") -> :globe
+      String.contains?(label, "confirm") or String.contains?(label, "rates") -> :arrow_in
+      true -> :refresh
+    end
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -245,32 +350,145 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
         </Shared.banner>
       <% end %>
 
-      <ol class="cx-steps">
-        <%= for {label, n} <- Enum.with_index(["Channel", "Connect", "Mapping", "Done"], 1) do %>
-          <li class="cx-step" data-active={if n == @step, do: "1"} data-done={if n < @step, do: "1"}>
-            <span class="cx-step-n"><%= n %></span><%= label %>
-          </li>
-        <% end %>
-      </ol>
+      <%= if @step == 1 do %>
+        <% cat = catalog(assigns) %>
+        <% counts = catalog_counts(cat) %>
+        <% shown = visible_channels(cat, @filter, @query) %>
+        <% sel = Enum.find(cat, &(&1.id == @selected)) %>
 
-      <%= if @error do %><Shared.banner kind="error"><%= @error %></Shared.banner><% end %>
-
-      <%= case @step do %>
-        <% 1 -> %>
-          <Shared.section_card num="1" title="Choose a channel" desc="Pick the OTA to connect. More channels are coming soon.">
-            <div class="cx-ota-cards">
-              <%= for ota <- @otas do %>
-                <button type="button" class="cx-ota-card"
-                        phx-click="select_channel" phx-value-id={ota.id}
-                        disabled={not ota.enabled} data-on={if @channel == ota.id, do: "1"}>
-                  <span class="cx-ota-name"><%= ota.name %></span>
-                  <span class="cx-ota-meta"><%= if ota.enabled, do: "Connect →", else: "Coming soon" %></span>
-                </button>
-              <% end %>
+        <div class="ch-hero">
+          <div class="ch-hero-l">
+            <div class="ch-hero-eyebrow"><Shared.icon name={:link} /> Channel manager</div>
+            <div class="ch-hero-title">One inventory, every channel — always in sync.</div>
+            <div class="ch-hero-sub">
+              Push rates and availability to every OTA in real time, and pull bookings
+              straight into your calendar. No double bookings, no manual updates.
             </div>
-          </Shared.section_card>
+            <div class="ch-hero-stats">
+              <div class="ch-hero-stat"><div class="v"><%= counts["connected"] %></div><div class="l">Connected</div></div>
+              <div class="ch-hero-stat"><div class="v"><%= counts["progress"] %></div><div class="l">In progress</div></div>
+              <div class="ch-hero-stat"><div class="v"><%= counts["connect"] %></div><div class="l">Ready to connect</div></div>
+            </div>
+          </div>
+          <div class="ch-hero-r">
+            <svg viewBox="0 0 300 220" preserveAspectRatio="xMidYMid slice">
+              <circle cx="150" cy="110" r="58" fill="none" stroke="oklch(88% 0.01 260)" stroke-width="1" stroke-dasharray="3 4" />
+              <circle cx="150" cy="110" r="92" fill="none" stroke="oklch(90% 0.008 260)" stroke-width="1" stroke-dasharray="3 4" />
+              <%= for {x, y, c} <- [{216,69,"#003580"},{234,147,"#FF5A5F"},{153,184,"#1A73E8"},{72,155,"#5A2D8C"},{84,81,"#F36F21"},{144,18,"#287DFB"}] do %>
+                <line x1="150" y1="110" x2={x} y2={y} stroke="oklch(86% 0.01 260)" stroke-width="1" />
+                <circle cx={x} cy={y} r="13" fill="#fff" stroke="oklch(90% 0.008 260)" stroke-width="1" />
+                <circle cx={x} cy={y} r="7" fill={c} />
+              <% end %>
+              <circle cx="150" cy="110" r="26" fill="var(--accent)" />
+              <circle cx="150" cy="110" r="26" fill="none" stroke="#fff" stroke-opacity="0.5" stroke-width="1.5" />
+              <g transform="translate(141, 101)" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 16V5l6-2v13M9 16h6V8L9 5.5M14.5 16H2.5M5.5 8h.7M5.5 11h.7M11 10h1.3M11 12.6h1.3" />
+              </g>
+            </svg>
+          </div>
+        </div>
 
-        <% 2 -> %>
+        <div class="ch-filter-row">
+          <div class="ch-tabs">
+            <%= for {id, label} <- filters() do %>
+              <button type="button" class="ch-tab" data-on={if @filter == id, do: "1", else: "0"}
+                      phx-click="set_filter" phx-value-filter={id}>
+                <%= label %><span class="ct"><%= counts[id] %></span>
+              </button>
+            <% end %>
+          </div>
+          <form class="ch-search" phx-change="search">
+            <Shared.icon name={:search} />
+            <input name="q" value={@query} placeholder="Search channels…" autocomplete="off" />
+          </form>
+        </div>
+
+        <div class="ch-grid">
+          <%= for ch <- shown do %>
+            <div class="ch-card" style={"--brand: #{ch.brand}"}
+                 data-selectable={if ch.status == "connect", do: "1", else: "0"}
+                 data-selected={if @selected == ch.id, do: "1", else: "0"}
+                 data-soon={if ch.status == "soon", do: "1", else: "0"}
+                 phx-click={if ch.status == "connect", do: "select_card"} phx-value-id={ch.id}>
+              <span class="ch-selflag"><Shared.icon name={:check_small} /></span>
+              <div class="ch-head">
+                <div class="ch-logo"><span class={"mono#{if String.length(ch.mono) > 1, do: " sm"}"}><%= ch.mono %></span></div>
+                <%= case ch.status do %>
+                  <% "connected" -> %><span class="ch-status" data-s="connected"><span class="sdot"></span>Connected</span>
+                  <% "progress" -> %><span class="ch-status" data-s="progress"><span class="spin"><Shared.icon name={:refresh} /></span>In progress</span>
+                  <% "soon" -> %><span class="ch-status" data-s="soon">Coming soon</span>
+                  <% _ -> %><span class="ch-status" data-s="connect"><span class="sdot"></span>Not connected</span>
+                <% end %>
+              </div>
+              <div class="ch-body">
+                <div class="ch-namerow"><span class="ch-name"><%= ch.name %></span><span class="ch-cat"><%= ch.category %></span></div>
+                <div class="ch-desc"><%= ch.description %></div>
+                <%= case ch.status do %>
+                  <% "connected" -> %>
+                    <div class="ch-syncline"><Shared.icon name={:check} /> Connected · synced via Channex</div>
+                  <% "progress" -> %>
+                    <div class="ch-syncline" style="color:var(--partial-ink)"><Shared.icon name={:refresh} /> Created · awaiting OTA approval</div>
+                  <% "connect" -> %>
+                    <%= if ch.chips != [] do %>
+                      <div class="ch-chips">
+                        <%= for chip <- ch.chips do %>
+                          <span class="ch-chip"><Shared.icon name={chip_icon(chip)} /><%= chip %></span>
+                        <% end %>
+                      </div>
+                    <% end %>
+                  <% _ -> %>
+                <% end %>
+              </div>
+              <div class="ch-foot">
+                <%= case ch.status do %>
+                  <% "connected" -> %>
+                    <.link navigate="/settings/channels" class="ch-btn">Manage channel</.link>
+                  <% "progress" -> %>
+                    <.link navigate="/settings/channels" class="ch-btn amber">View status <Shared.icon name={:chev_right} /></.link>
+                  <% "connect" -> %>
+                    <span class={"ch-btn #{if @selected == ch.id, do: "accent", else: "primary"}"}>
+                      <%= if @selected == ch.id do %><Shared.icon name={:check_small} /> Selected<% else %>Connect <Shared.icon name={:arrow_in} /><% end %>
+                    </span>
+                  <% _ -> %>
+                    <button type="button" class="ch-btn" disabled>Notify me</button>
+                <% end %>
+              </div>
+            </div>
+          <% end %>
+        </div>
+
+        <%= if shown == [] do %>
+          <div class="ch-empty">No channels match your search.</div>
+        <% end %>
+
+        <div class="continue-bar" data-show={if sel, do: "1", else: "0"}>
+          <div class="continue-inner" style={"--brand: #{(sel && sel.brand) || "#000"}"}>
+            <div class="continue-msg">
+              <div class="clogo"><%= sel && sel.mono %></div>
+              <div class="ct">
+                <b><%= sel && sel.name %></b> selected
+                <div class="sub">Next: test your hotel ID and credentials</div>
+              </div>
+            </div>
+            <button type="button" class="continue-btn" phx-click="clear_selection">Clear</button>
+            <button type="button" class="continue-btn primary" phx-click="continue">
+              Continue to connect <Shared.icon name={:chev_right} />
+            </button>
+          </div>
+        </div>
+      <% else %>
+        <ol class="cx-steps">
+          <%= for {label, n} <- Enum.with_index(["Channel", "Connect", "Mapping", "Done"], 1) do %>
+            <li class="cx-step" data-active={if n == @step, do: "1"} data-done={if n < @step, do: "1"}>
+              <span class="cx-step-n"><%= n %></span><%= label %>
+            </li>
+          <% end %>
+        </ol>
+
+        <%= if @error do %><Shared.banner kind="error"><%= @error %></Shared.banner><% end %>
+
+        <%= case @step do %>
+          <% 2 -> %>
           <Shared.section_card num="2" title="Connection details"
               desc="Enter the OTA hotel id and test that Channex can reach it.">
             <:aside>
@@ -433,6 +651,7 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
               </div>
             </Shared.section_card>
           <% end %>
+        <% end %>
       <% end %>
     </Shared.chrome>
     """
