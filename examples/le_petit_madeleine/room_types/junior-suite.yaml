@@ -17,9 +17,11 @@ description:
     Idéale pour les séjours prolongés ou les occasions spéciales.
 
 max_occupancy:
-  adults: 2
+  adults: 3
   children: 2
   total: 4
+
+base_occupancy: 2
 
 size:
   sqm: 55

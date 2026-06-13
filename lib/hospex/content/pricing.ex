@@ -69,6 +69,75 @@ defmodule Hospex.Content.Pricing do
     end
   end
 
+  @doc """
+  Nightly rate for `occupancy` adults (per-person / base-occupancy
+  pricing): the base-occupancy rate (`nightly_rate/3`) adjusted by the
+  plan's `extra_person_fee` per adult above `base_occupancy/1` and
+  `lower_occupancy_fee` per adult below it. Children are not included —
+  add `child_fee/1 × kids` separately. Returns `{:ok, rate}` / `:error`.
+  """
+  def nightly_rate(plan, room_type_id, %Date{} = date, occupancy)
+      when is_integer(occupancy) do
+    with {:ok, base} <- nightly_rate(plan, room_type_id, date) do
+      {:ok, base + occupancy_adjustment(plan, room_type_id, occupancy)}
+    end
+  end
+
+  @doc """
+  Per-occupancy nightly rates for a room type: `[{occupancy, rate}, …]`
+  for `1..max_occupancy.adults`. `[]` when the plan doesn't price the
+  room type. Used to push per-person rates to the channel manager.
+  """
+  def rates_by_occupancy(plan, room_type_id, %Date{} = date) do
+    case nightly_rate(plan, room_type_id, date) do
+      {:ok, _} ->
+        for occ <- 1..max_adults(room_type_id) do
+          {:ok, rate} = nightly_rate(plan, room_type_id, date, occ)
+          {occ, rate}
+        end
+
+      :error ->
+        []
+    end
+  end
+
+  @doc """
+  Adult occupancy the room type's base rate is quoted at. Reads the room
+  type's `base_occupancy`, defaulting to `min(2, max_occupancy.adults)`.
+  """
+  def base_occupancy(room_type_id) do
+    rt = room_type(room_type_id)
+
+    case rt && rt["base_occupancy"] do
+      n when is_integer(n) and n > 0 -> n
+      _ -> min(2, max_adults(room_type_id))
+    end
+  end
+
+  @doc "Max adult occupancy for a room type (defaults to 2)."
+  def max_adults(room_type_id) do
+    get_in(room_type(room_type_id) || %{}, ["max_occupancy", "adults"]) || 2
+  end
+
+  @doc "Per-child nightly fee declared by the plan (defaults to 0)."
+  def child_fee(plan), do: plan |> get_in(["pricing", "child_fee"]) |> as_number()
+
+  defp occupancy_adjustment(plan, room_type_id, occ) do
+    base_occ = base_occupancy(room_type_id)
+    pricing = Map.get(plan, "pricing", %{})
+
+    cond do
+      occ > base_occ -> (occ - base_occ) * as_number(pricing["extra_person_fee"])
+      occ < base_occ -> -(base_occ - occ) * as_number(pricing["lower_occupancy_fee"])
+      true -> 0
+    end
+  end
+
+  defp room_type(id), do: Enum.find(Property.list_room_types(), &(Map.get(&1, "id") == id))
+
+  defp as_number(n) when is_number(n), do: n
+  defp as_number(_), do: 0
+
   @doc "Minimum stay (nights) declared by the plan; defaults to 1."
   def min_stay(plan) do
     case get_in(plan, ["restrictions", "min_stay_nights"]) do

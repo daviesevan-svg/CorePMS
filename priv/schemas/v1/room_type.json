@@ -34,6 +34,11 @@
         "total":    { "type": "integer", "minimum": 1, "description": "Overall cap when adults + children together." }
       }
     },
+    "base_occupancy": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Adult occupancy the rate plan's room_rates price is quoted at (per-person pricing). Fewer guests subtract lower_occupancy_fee; more add extra_person_fee. Defaults to min(2, max_occupancy.adults)."
+    },
     "size": {
       "type": "object",
       "description": "Room size. Provide sqm, sqft, or both.",
