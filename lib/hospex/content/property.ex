@@ -44,6 +44,7 @@ defmodule Hospex.Content.Property do
   defp rate_plans_dir,       do: Path.join(property_dir(), "rate_plans")
   defp room_type_file(id),   do: Path.join(room_types_dir(), "#{id}.yaml")
   defp room_file(id),        do: Path.join(rooms_dir(), "#{id}.yaml")
+  defp rate_plan_file(id),   do: Path.join(rate_plans_dir(), "#{id}.yaml")
 
   # Ids arrive from LiveView events (client-controlled) and get
   # interpolated into file paths — restrict to a single safe path
@@ -139,6 +140,37 @@ defmodule Hospex.Content.Property do
 
   def list_rate_plans do
     list_dir(rate_plans_dir())
+  end
+
+  def get_rate_plan(id) do
+    with :ok <- validate_id(id), do: read_yaml(rate_plan_file(id))
+  end
+
+  @doc "Upsert a rate plan; partial maps deep-merge into the existing YAML."
+  def save_rate_plan(map) when is_map(map) do
+    map = stringify(map)
+    id = Map.fetch!(map, "id")
+
+    with :ok <- validate_id(id) do
+      path = rate_plan_file(id)
+
+      with_file_lock(path, fn ->
+        existing =
+          case read_yaml(path) do
+            {:ok, m} -> m
+            _ -> %{}
+          end
+
+        merged = deep_merge(existing, map) |> Map.put_new("schema_version", "1.0")
+
+        with :ok <- Validator.validate_map(merged, :rate_plan, schema_version(merged)),
+             :ok <- File.mkdir_p(rate_plans_dir()),
+             :ok <- write_yaml(path, merged) do
+          broadcast(:rate_plan, id)
+          {:ok, merged}
+        end
+      end)
+    end
   end
 
   def get_room_type(id) do
