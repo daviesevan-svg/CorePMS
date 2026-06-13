@@ -82,6 +82,12 @@
           <%= metric_short(m) %>
         </button>
       <% end %>
+      <span class="metric-filter-sep"></span>
+      <button class="metric-chip"
+              data-active={if @show_occupancy, do: "1", else: "0"}
+              phx-click="toggle_occupancy">
+        Per-person rates
+      </button>
     </div>
   </div>
 
@@ -110,7 +116,7 @@
                 <span class="sub"><%= metric_sub(m) %></span>
               </div>
 
-              <%= if m == :rate do %>
+              <%= if m == :rate and @show_occupancy do %>
                 <%= for occ <- derived_occupancies(group.id) do %>
                   <div class="rt-metric derived">
                     <span class="label"><%= occ %> guest<%= if occ > 1, do: "s" %></span>
@@ -179,7 +185,7 @@
 
               <%!-- Rate (editable base occupancy) --%>
               <%= if MapSet.member?(@visible_metrics, :rate) do %>
-                <% derived = derived_occupancies(group.id) %>
+                <% derived = if @show_occupancy, do: derived_occupancies(group.id), else: [] %>
                 <% is_last = last_visible_metric?(@visible_metrics, :rate) %>
                 <div class="metric-row" data-last={if is_last and derived == [], do: "1", else: "0"}>
                   <%= for {date, ci} <- Enum.with_index(@dates) do %>

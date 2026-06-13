@@ -26,7 +26,7 @@ defmodule HospexWeb.InventoryLive do
       |> assign(room_groups: room_groups, all_stays: stays)
       |> assign(collapsed: %{}, overrides: Hospex.Inventory.load(), editing: nil, selection: nil)
       |> assign(plan: Pricing.primary_plan())
-      |> assign(visible_metrics: MapSet.new([:avail, :rate]))
+      |> assign(visible_metrics: MapSet.new([:avail, :rate]), show_occupancy: false)
       |> assign(dp_open: false, dp_month: Date.beginning_of_month(today))
       |> derive_view()
 
@@ -143,6 +143,10 @@ defmodule HospexWeb.InventoryLive do
         MapSet.put(socket.assigns.visible_metrics, metric)
       end
     {:noreply, assign(socket, :visible_metrics, set)}
+  end
+
+  def handle_event("toggle_occupancy", _params, socket) do
+    {:noreply, assign(socket, :show_occupancy, not socket.assigns.show_occupancy)}
   end
 
   # ── Cell editing ──────────────────────────────────────────────
