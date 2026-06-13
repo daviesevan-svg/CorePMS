@@ -1,6 +1,6 @@
 ---
 name: connect-channex
-description: Connect this PMS to the Channex channel manager (staging or production) so bookings, availability, and prices flow to/from OTAs like Booking.com and Airbnb. Use when the user wants to set up Channex, connect to a channel manager / OTAs, sync rates and availability, receive OTA bookings, debug Channex sync issues, or build/extend the Channels settings page and its API-call activity log.
+description: Connect this PMS to the Channex channel manager (staging or production) so bookings, availability, and prices flow to/from OTAs like Booking.com and Airbnb. Use when the user wants to set up Channex, connect to a channel manager / OTAs, connect and map a Booking.com (or other OTA) channel, sync rates and availability, receive OTA bookings, debug Channex sync issues, or build/extend the Channels settings page, the connect/mapping flow, and its API-call activity log.
 ---
 
 # Connect this PMS to Channex
@@ -136,6 +136,73 @@ stale `@assign` only crashes on the path that renders it (e.g. a filter
 yielding zero rows), so unit tests that never render that branch pass
 while the page crashes in the browser. Always click through
 zero-result states when verifying.
+
+## Connecting & mapping an OTA channel (Booking.com)
+
+Staff connect an OTA from **Settings → Channels → Connect**
+(`/settings/channels/connect`, `HospexWeb.Settings.ChannelsConnectLive`).
+The connect LiveView is a catalogue (step 1) → 4-step wizard. All HTTP
+goes through `Hospex.Channex.Channels` (which wraps `Client`, so every
+call is logged).
+
+**`Hospex.Channex.Channels` API** (Channel API, all under `/api/v1`):
+- `available/0` → `GET /channels/list`; `connected/0` → `GET /channels`;
+  `get/1` → `GET /channels/:id`.
+- `test_connection/2` → `POST /channels/test_connection`
+  (`{"channel","settings":{"hotel_id"}}`).
+- `mapping_details/2` → `POST /channels/mapping_details` (the OTA's
+  rooms/rate plans).
+- `create/1` → `POST /channels`; `update/2` → `PUT /channels/:id`.
+- `activate/1`/`deactivate/1` → `POST /channels/:id/activate|deactivate`;
+  `delete/2` → `DELETE /channels/:id`.
+- `groups/0` + `resolve_group_id/0`, `propose_mapping/1`,
+  `build_create_attrs/2`, `edit_mapping/1`.
+
+**Flow:** choose channel (only Booking.com wired; others "coming soon")
+→ enter hotel id + **Test connection** → review the auto-proposed
+room/rate mapping → **create** (inactive) → **Activate** from the
+Overview's "Connected channels" rows (Pause / Edit mapping / Remove live
+there too). `Channels.edit_mapping/1` re-opens the editor pre-filled from
+the channel's current Channex mappings (PUT to save).
+
+### Booking.com mapping — gotchas confirmed against staging
+
+- **`mapping_details` shape (Booking.com):** after `Client` unwraps
+  `"data"`, it's `%{"rooms" => [%{"id", "title", "rates" => [%{"id",
+  "title", "pricing" => "OBP"|"PP", "max_persons", "occupancies"}]}]}`.
+  Note `rooms` (not `room_types`) and `rates` (not `rate_plans`). The
+  docs are whitelabel-gated, so **readback-first**: call it against a
+  test hotel id and read the real JSON in the API activity log before
+  trusting a parser (`Channels.normalize_mapping/1` keeps it defensive).
+- **Codes are INTEGERS.** `room_type_code`/`rate_plan_code` come back as
+  integers; send them as integers in the create body. Strings make
+  Channex file the mappings under **"removed rates"** (everything shows
+  "Not mapped"). Form `<select>` values are strings — match by
+  `to_string/1`, store the native integer.
+- **`group_id` is required** on create and must be one the account can
+  access, or you get `422 "You not have access to requested group"`.
+  `resolve_group_id/0` finds the group that owns our property via
+  `GET /groups`; the connect flow defaults to it.
+- **No duplicate mappings.** An OTA `{room, rate}` pair may map to at
+  most one of our rate plans — the editor flags duplicates and
+  `build_create_attrs/2` rejects them (`{:error, :duplicate_mapping}`).
+- **Lifecycle:** channels are created **inactive**; `activate` makes them
+  live. **Delete needs an inactive channel** — Channex returns
+  `422 {"channel" => ["is active"]}`, so `delete/2` deactivates first
+  when the row is active.
+- **Per-person:** our rate plans sync `sell_mode: "per_person"`; the OTA
+  rate's `pricing` (OBP/PP) carries into the mapping. ARI pushes a
+  per-occupancy `rates` array — see the per-person pricing in AGENTS.md.
+- **Test hotel id `6519420`** is shared across integrators (Channex
+  "test account for Booking.com" guide), so create may 422 as already
+  used. When readback-testing, prefer a **throwaway** rate plan /
+  channel and delete it after, so a real connected channel isn't
+  disturbed.
+
+Booking.com prerequisite (real, not staging): the property requests the
+connection in the Booking.com extranet (Account → Connectivity Provider);
+`hotel_id` is the extranet property id. See
+https://docs.channex.io/channel-mapping-guides/booking.com.md
 
 ## Debugging
 
