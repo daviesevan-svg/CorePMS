@@ -1,6 +1,6 @@
 ---
 name: connect-channex
-description: Connect this PMS to the Channex channel manager (staging or production) so bookings, availability, and prices flow to/from OTAs like Booking.com and Airbnb. Use when the user wants to set up Channex, connect to a channel manager / OTAs, sync rates and availability, receive OTA bookings, or debug Channex sync issues.
+description: Connect this PMS to the Channex channel manager (staging or production) so bookings, availability, and prices flow to/from OTAs like Booking.com and Airbnb. Use when the user wants to set up Channex, connect to a channel manager / OTAs, sync rates and availability, receive OTA bookings, debug Channex sync issues, or build/extend the Channels settings page and its API-call activity log.
 ---
 
 # Connect this PMS to Channex
@@ -84,6 +84,58 @@ gotchas baked in.
   booking still ingests into the first room and the calendar's
   overbooking lane flags it — a channel-manager booking must never be
   silently dropped.
+
+## Channels settings page + API activity log (`/settings/channels`)
+
+`HospexWeb.Settings.ChannelsLive` is the staff-facing admin/monitoring
+page for the connection. Build/extend it with the shared settings chrome
+(`HospexWeb.Settings.Shared.chrome`, the `:channels` rail item — add new
+`active` values to its `values:` allowlist). It shows three things:
+
+- **Connection** — `Hospex.Channex.connection_info/0` (enabled?, base
+  URL, primary rate plan, the mapped property's local slug + Channex
+  UUID + last-synced time) plus a **Full sync** button.
+- **Mappings** — `Hospex.Channex.links/1` for `"room_type"` and
+  `"rate_plan"`, enriched with YAML names. Rate-plan local ids are
+  `"plan_id:room_type_id"` — split on `:`.
+- **API activity log** — see below.
+
+**Full sync from the UI:** `Hospex.Channex.full_sync/0` is the single
+source of truth shared with `mix channex.sync` (content sync → 365-day
+ARI push; returns `{:ok, %{content, ari_ranges}}` or `{:error,
+{:content | :ari, reason}}`). Run it with `start_async/3` +
+`handle_async/3` so the long push never blocks the socket — don't call
+it inline in `handle_event`.
+
+### API call log (`Hospex.Channex.ApiLog`, table `channex_api_logs`)
+
+Every call that leaves `Hospex.Channex.Client.request/4` (the SINGLE
+HTTP chokepoint — instrument there, nowhere else) is recorded: method,
+full URL, request/response bodies (jsonb), status, success, transport
+error, duration. The log section renders newest-first, click-to-expand
+for the full payloads.
+
+- **Recording is best-effort.** `ApiLog.record/1` wraps the insert in a
+  `rescue` and must never raise into the request path — a logging or DB
+  failure can't be allowed to break a sync. It runs in whatever process
+  made the call (Oban worker, LiveView async task), which is fine.
+- **Normalize jsonb.** Response bodies aren't always maps; wrap
+  non-maps before insert or the jsonb cast crashes.
+- **Live updates.** `record/1` broadcasts `{:channex_api_log, id}` on
+  `ApiLog.topic()`; the LiveView subscribes and re-queries recent rows.
+- **Category + retention.** Each row is classified
+  `feed`/`ari`/`content`/`other` from its URL. The feed is polled every
+  minute and dominates volume, so a daily Oban cron
+  (`Hospex.Channex.Workers.PruneApiLogs`) keeps `feed` logs 7 days and
+  everything else 90. The log UI filters by category (to hide the noisy
+  feed polls) plus an errors-only toggle.
+
+**Gotcha (learned the hard way):** when you rename a filter/state assign,
+update EVERY reference in `render/1` — including empty-state branches. A
+stale `@assign` only crashes on the path that renders it (e.g. a filter
+yielding zero rows), so unit tests that never render that branch pass
+while the page crashes in the browser. Always click through
+zero-result states when verifying.
 
 ## Debugging
 
