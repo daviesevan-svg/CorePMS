@@ -173,6 +173,10 @@ defmodule HospexWeb.Settings.Shared do
     rooms_and_rates: [
       %{name: "Room Types", href: "/settings/room-types"},
       %{name: "Rooms",      href: "/settings/rooms"}
+    ],
+    channels: [
+      %{name: "Overview", href: "/settings/channels"},
+      %{name: "Connect",  href: "/settings/channels/connect"}
     ]
   }
 

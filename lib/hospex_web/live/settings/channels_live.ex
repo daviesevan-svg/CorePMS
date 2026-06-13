@@ -11,7 +11,7 @@ defmodule HospexWeb.Settings.ChannelsLive do
   use HospexWeb, :live_view
 
   alias Hospex.Channex
-  alias Hospex.Channex.ApiLog
+  alias Hospex.Channex.{ApiLog, Channels}
   alias Hospex.Content.Property
   alias HospexWeb.Settings.Shared
 
@@ -22,12 +22,22 @@ defmodule HospexWeb.Settings.ChannelsLive do
       Phoenix.PubSub.subscribe(Hospex.PubSub, ApiLog.topic())
     end
 
-    {:ok,
-     socket
-     |> assign(syncing?: false, flash_msg: nil, sync_error: nil)
-     |> assign(expanded_log: nil, log_category: "all", log_errors_only: false)
-     |> refresh()
-     |> refresh_logs()}
+    socket =
+      socket
+      |> assign(syncing?: false, flash_msg: nil, sync_error: nil)
+      |> assign(expanded_log: nil, log_category: "all", log_errors_only: false)
+      |> assign(channels_list: nil, channels_error: nil)
+      |> refresh()
+      |> refresh_logs()
+
+    socket =
+      if connected?(socket) and socket.assigns.info.enabled? do
+        start_async(socket, :channels, &Channels.connected/0)
+      else
+        socket
+      end
+
+    {:ok, socket}
   end
 
   @impl true
@@ -83,6 +93,22 @@ defmodule HospexWeb.Settings.ChannelsLive do
 
   def handle_async(:full_sync, {:exit, reason}, socket) do
     {:noreply, assign(socket, syncing?: false, sync_error: "Sync crashed: #{inspect(reason)}")}
+  end
+
+  def handle_async(:channels, {:ok, {:ok, list}}, socket) when is_list(list) do
+    {:noreply, assign(socket, channels_list: Enum.map(list, &channel_row/1), channels_error: nil)}
+  end
+
+  def handle_async(:channels, {:ok, {:ok, _}}, socket) do
+    {:noreply, assign(socket, channels_list: [], channels_error: nil)}
+  end
+
+  def handle_async(:channels, {:ok, {:error, reason}}, socket) do
+    {:noreply, assign(socket, channels_list: [], channels_error: format_error(reason))}
+  end
+
+  def handle_async(:channels, {:exit, _reason}, socket) do
+    {:noreply, assign(socket, channels_list: [], channels_error: "Could not load connected channels.")}
   end
 
   defp refresh(socket) do
@@ -141,6 +167,26 @@ defmodule HospexWeb.Settings.ChannelsLive do
   defp format_error({:content, reason}), do: "Content sync failed: #{inspect(reason)}"
   defp format_error({:ari, reason}), do: "ARI push failed: #{inspect(reason)}"
   defp format_error(reason), do: inspect(reason)
+
+  # Flatten a Channex channel record into the fields the Overview lists.
+  defp channel_row(ch) do
+    attrs = Map.get(ch, "attributes", %{})
+
+    state =
+      cond do
+        attrs["state"] -> attrs["state"]
+        attrs["is_active"] == true -> "active"
+        true -> "inactive"
+      end
+
+    %{
+      id: ch["id"] || attrs["id"],
+      title: attrs["title"] || "Untitled channel",
+      channel: attrs["channel"] || "—",
+      state: state,
+      hotel_id: get_in(attrs, ["settings", "hotel_id"]) || "—"
+    }
+  end
 
   defp fmt_time(nil), do: "Never"
   defp fmt_time(dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M UTC")
@@ -246,7 +292,41 @@ defmodule HospexWeb.Settings.ChannelsLive do
         </Shared.banner>
       </Shared.section_card>
 
-      <Shared.section_card num="2" title="Room type mappings"
+      <Shared.section_card num="2" title="Connected channels"
+          desc="OTAs connected to this property through Channex.">
+        <:aside>
+          <.link navigate="/settings/channels/connect" class="sect-btn primary">
+            <Shared.icon name={:plus} /> Connect a channel
+          </.link>
+        </:aside>
+
+        <%= cond do %>
+          <% not @info.enabled? -> %>
+            <Shared.banner>Configure Channex to connect OTA channels.</Shared.banner>
+          <% is_nil(@channels_list) -> %>
+            <Shared.banner>Loading connected channels…</Shared.banner>
+          <% @channels_error -> %>
+            <Shared.banner kind="error"><%= @channels_error %></Shared.banner>
+          <% @channels_list == [] -> %>
+            <Shared.banner>
+              No channels connected yet. Click <b>Connect a channel</b> to add Booking.com.
+            </Shared.banner>
+          <% true -> %>
+            <div class="cx-chan-list">
+              <%= for ch <- @channels_list do %>
+                <div class="cx-chan-row">
+                  <span class={"log-status #{if ch.state == "active", do: "ok", else: ""}"}></span>
+                  <span class="cx-chan-title"><%= ch.title %></span>
+                  <span class="log-code"><%= ch.channel %></span>
+                  <span class="log-code">hotel <%= ch.hotel_id %></span>
+                  <span class="set-page-status"><span class="dot"></span><%= ch.state %></span>
+                </div>
+              <% end %>
+            </div>
+        <% end %>
+      </Shared.section_card>
+
+      <Shared.section_card num="3" title="Room type mappings"
           desc="Each local room type is mapped to its Channex room-type UUID.">
         <:aside>
           <span class="set-page-status"><span class="dot"></span><%= length(@room_type_maps) %> mapped</span>
@@ -266,7 +346,7 @@ defmodule HospexWeb.Settings.ChannelsLive do
         <% end %>
       </Shared.section_card>
 
-      <Shared.section_card num="3" title="Rate plan mappings"
+      <Shared.section_card num="4" title="Rate plan mappings"
           desc="Only the primary rate plan is synced per room type for now.">
         <:aside>
           <span class="set-page-status"><span class="dot"></span><%= length(@rate_plan_maps) %> mapped</span>
@@ -286,7 +366,7 @@ defmodule HospexWeb.Settings.ChannelsLive do
         <% end %>
       </Shared.section_card>
 
-      <Shared.section_card num="4" title="API activity"
+      <Shared.section_card num="5" title="API activity"
           desc="Every request sent to Channex — newest first. Click a row to inspect the payload and response.">
         <:aside>
           <span class="set-page-status">
