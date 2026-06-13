@@ -79,12 +79,28 @@ defmodule HospexWeb.Settings.ChannelsLive do
     {:noreply, socket |> assign(log_errors_only: not socket.assigns.log_errors_only) |> refresh_logs()}
   end
 
-  def handle_event("delete_channel", %{"id" => id, "code" => code}, socket) do
+  def handle_event("activate_channel", %{"id" => id}, socket) do
+    {:noreply,
+     socket
+     |> assign(channels_list: nil, channels_error: nil, sync_error: nil)
+     |> start_async(:activate_channel, fn -> Channels.activate(id) end)}
+  end
+
+  def handle_event("deactivate_channel", %{"id" => id}, socket) do
+    {:noreply,
+     socket
+     |> assign(channels_list: nil, channels_error: nil, sync_error: nil)
+     |> start_async(:activate_channel, fn -> Channels.deactivate(id) end)}
+  end
+
+  def handle_event("delete_channel", %{"id" => id, "code" => code} = params, socket) do
+    active? = params["state"] == "active"
+
     {:noreply,
      socket
      |> assign(channels_list: nil, channels_error: nil)
      |> start_async(:delete_channel, fn ->
-       result = Channels.delete(id)
+       result = Channels.delete(id, active?)
        if match?({:ok, _}, result), do: Channex.delete_link("channel", Channels.channel_local_id(code))
        result
      end)}
@@ -104,6 +120,24 @@ defmodule HospexWeb.Settings.ChannelsLive do
 
   def handle_async(:full_sync, {:exit, reason}, socket) do
     {:noreply, assign(socket, syncing?: false, sync_error: "Sync crashed: #{inspect(reason)}")}
+  end
+
+  def handle_async(:activate_channel, {:ok, {:ok, _}}, socket) do
+    {:noreply,
+     socket
+     |> assign(flash_msg: "Channel updated.")
+     |> start_async(:channels, &Channels.connected/0)}
+  end
+
+  def handle_async(:activate_channel, {:ok, {:error, reason}}, socket) do
+    {:noreply,
+     socket
+     |> assign(sync_error: "Channel update failed: #{format_error(reason)}")
+     |> start_async(:channels, &Channels.connected/0)}
+  end
+
+  def handle_async(:activate_channel, _result, socket) do
+    {:noreply, socket |> assign(sync_error: "Could not update the channel.") |> start_async(:channels, &Channels.connected/0)}
   end
 
   def handle_async(:delete_channel, {:ok, {:ok, _}}, socket) do
@@ -341,9 +375,18 @@ defmodule HospexWeb.Settings.ChannelsLive do
                   <span class="cx-chan-title"><%= ch.title %></span>
                   <span class="log-code">hotel <%= ch.hotel_id %></span>
                   <span class="set-page-status"><span class="dot"></span><%= ch.state %></span>
+                  <%= if ch.state == "active" do %>
+                    <button type="button" class="sect-btn" phx-click="deactivate_channel" phx-value-id={ch.id}>
+                      Pause
+                    </button>
+                  <% else %>
+                    <button type="button" class="sect-btn primary" phx-click="activate_channel" phx-value-id={ch.id}>
+                      Activate
+                    </button>
+                  <% end %>
                   <.link navigate={"/settings/channels/connect/#{ch.id}"} class="sect-btn">Edit mapping</.link>
                   <button type="button" class="sect-btn danger"
-                          phx-click="delete_channel" phx-value-id={ch.id} phx-value-code={ch.channel}
+                          phx-click="delete_channel" phx-value-id={ch.id} phx-value-code={ch.channel} phx-value-state={ch.state}
                           data-confirm={"Remove #{ch.title}? This disconnects it from Channex."}>
                     Remove
                   </button>

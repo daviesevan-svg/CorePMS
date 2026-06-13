@@ -84,8 +84,20 @@ defmodule Hospex.Channex.Channels do
   @doc "Push ARI to the channel / activate it (GET /channels/:id/execute/load_and_save_ari)."
   def load_and_save_ari(uuid), do: Client.get("/channels/#{uuid}/execute/load_and_save_ari")
 
-  @doc "Disconnect a channel (DELETE /channels/:id)."
-  def delete(uuid), do: Client.delete("/channels/#{uuid}")
+  @doc "Activate a channel to make it live (POST /channels/:id/activate)."
+  def activate(uuid), do: Client.post("/channels/#{uuid}/activate", %{})
+
+  @doc "Pause a channel (POST /channels/:id/deactivate). Required before delete."
+  def deactivate(uuid), do: Client.post("/channels/#{uuid}/deactivate", %{})
+
+  @doc """
+  Disconnect a channel (DELETE /channels/:id). Channex rejects deleting
+  an active channel, so an active one is deactivated first.
+  """
+  def delete(uuid, active? \\ false) do
+    if active?, do: deactivate(uuid)
+    Client.delete("/channels/#{uuid}")
+  end
 
   @doc """
   Load an existing channel for editing: returns `{:ok, %{channel,
