@@ -374,7 +374,7 @@ defmodule HospexWeb.Settings.ChannelsLive do
                   <span class={"log-status #{if ch.state == "active", do: "ok", else: ""}"}></span>
                   <span class="cx-chan-title"><%= ch.title %></span>
                   <span class="log-code">hotel <%= ch.hotel_id %></span>
-                  <span class="set-page-status"><span class="dot"></span><%= ch.state %></span>
+                  <span class={"set-page-status #{if ch.state != "active", do: "warn"}"}><span class="dot"></span><%= ch.state %></span>
                   <%= if ch.state == "active" do %>
                     <button type="button" class="sect-btn" phx-click="deactivate_channel" phx-value-id={ch.id}>
                       Pause

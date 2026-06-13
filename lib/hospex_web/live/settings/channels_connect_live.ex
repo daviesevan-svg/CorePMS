@@ -42,6 +42,8 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
         mapping: nil,
         creating?: false,
         saving?: false,
+        activating_created?: false,
+        activated?: false,
         result: nil,
         error: nil
       )
@@ -76,6 +78,25 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
 
   def handle_event("clear_selection", _, socket) do
     {:noreply, assign(socket, selected: nil)}
+  end
+
+  def handle_event("card_activate", %{"id" => id}, socket) do
+    {:noreply, start_async(socket, :card_action, fn -> Channels.activate(id) end)}
+  end
+
+  def handle_event("card_pause", %{"id" => id}, socket) do
+    {:noreply, start_async(socket, :card_action, fn -> Channels.deactivate(id) end)}
+  end
+
+  def handle_event("card_remove", %{"id" => id, "code" => code} = params, socket) do
+    active? = params["state"] == "active"
+
+    {:noreply,
+     start_async(socket, :card_action, fn ->
+       result = Channels.delete(id, active?)
+       if match?({:ok, _}, result), do: Channex.delete_link("channel", Channels.channel_local_id(code))
+       result
+     end)}
   end
 
   def handle_event("save_mapping", _, socket) do
@@ -186,6 +207,19 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
 
   # ── Create ────────────────────────────────────────────────────
 
+  def handle_event("activate_created", _, socket) do
+    case socket.assigns.result do
+      {:ok, %{"id" => id}} when is_binary(id) ->
+        {:noreply,
+         socket
+         |> assign(activating_created?: true, error: nil)
+         |> start_async(:activate_created, fn -> Channels.activate(id) end)}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
   def handle_event("create", _, socket) do
     rows = (socket.assigns.mapping && socket.assigns.mapping.rows) || []
     channel = socket.assigns.channel
@@ -255,6 +289,18 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
     {:noreply, assign(socket, creating?: false, error: "Create crashed: #{inspect(reason)}")}
   end
 
+  def handle_async(:activate_created, {:ok, {:ok, _}}, socket) do
+    {:noreply, assign(socket, activating_created?: false, activated?: true)}
+  end
+
+  def handle_async(:activate_created, {:ok, {:error, reason}}, socket) do
+    {:noreply, assign(socket, activating_created?: false, error: "Activation failed: #{api_error(reason)}")}
+  end
+
+  def handle_async(:activate_created, {:exit, reason}, socket) do
+    {:noreply, assign(socket, activating_created?: false, error: "Activation crashed: #{inspect(reason)}")}
+  end
+
   # ── edit mode (load + save) ───────────────────────────────────
 
   def handle_async(:load_edit, {:ok, {:ok, data}}, socket) do
@@ -283,11 +329,17 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
   end
 
   def handle_async(:catalog, {:ok, {:ok, list}}, socket) when is_list(list) do
-    by_code = Map.new(list, fn ch -> {channel_code(ch), channel_state(ch)} end)
+    by_code = Map.new(list, fn ch -> {channel_code(ch), %{id: channel_id(ch), state: channel_state(ch)}} end)
     {:noreply, assign(socket, connected_by_code: by_code)}
   end
 
   def handle_async(:catalog, _other, socket), do: {:noreply, socket}
+
+  # Channel actions invoked from the catalogue's connected/in-progress
+  # cards (so staff manage in place instead of jumping to Overview).
+  def handle_async(:card_action, _result, socket) do
+    {:noreply, start_async(socket, :catalog, &Channels.connected/0)}
+  end
 
   # ── catalogue ─────────────────────────────────────────────────
 
@@ -310,15 +362,17 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
     by_code = assigns.connected_by_code
 
     Enum.map(Channels.otas(), fn ota ->
+      info = by_code[ota.id]
+
       status =
         cond do
-          by_code[ota.id] == "active" -> "connected"
-          Map.has_key?(by_code, ota.id) -> "progress"
+          info && info.state == "active" -> "connected"
+          info -> "progress"
           ota.enabled -> "connect"
           true -> "soon"
         end
 
-      Map.put(ota, :status, status)
+      Map.merge(ota, %{status: status, channel_id: info && info.id})
     end)
   end
 
@@ -335,6 +389,8 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
         (q == "" or String.contains?(String.downcase(ch.name), q))
     end)
   end
+
+  defp channel_id(ch), do: ch["id"] || get_in(ch, ["attributes", "id"])
 
   defp channel_code(ch), do: get_in(ch, ["attributes", "channel"]) || ch["channel"]
 
@@ -603,9 +659,17 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
               <div class="ch-foot">
                 <%= case ch.status do %>
                   <% "connected" -> %>
-                    <.link navigate="/settings/channels" class="ch-btn">Manage channel</.link>
+                    <button type="button" class="ch-btn" phx-click="card_pause" phx-value-id={ch.channel_id}>Pause</button>
+                    <.link navigate={"/settings/channels/connect/#{ch.channel_id}"} class="ch-icon-btn" title="Edit mapping"><Shared.icon name={:edit} /></.link>
+                    <button type="button" class="ch-icon-btn" title="Remove"
+                            phx-click="card_remove" phx-value-id={ch.channel_id} phx-value-code={ch.id} phx-value-state="active"
+                            data-confirm={"Remove #{ch.name}? This disconnects it from Channex."}><Shared.icon name={:trash} /></button>
                   <% "progress" -> %>
-                    <.link navigate="/settings/channels" class="ch-btn amber">View status <Shared.icon name={:chev_right} /></.link>
+                    <button type="button" class="ch-btn primary" phx-click="card_activate" phx-value-id={ch.channel_id}>Activate</button>
+                    <.link navigate={"/settings/channels/connect/#{ch.channel_id}"} class="ch-icon-btn" title="Edit mapping"><Shared.icon name={:edit} /></.link>
+                    <button type="button" class="ch-icon-btn" title="Remove"
+                            phx-click="card_remove" phx-value-id={ch.channel_id} phx-value-code={ch.id} phx-value-state="inactive"
+                            data-confirm={"Remove #{ch.name}? This disconnects it from Channex."}><Shared.icon name={:trash} /></button>
                   <% "connect" -> %>
                     <span class={"ch-btn #{if @selected == ch.id, do: "accent", else: "primary"}"}>
                       <%= if @selected == ch.id do %><Shared.icon name={:check_small} /> Selected<% else %>Connect <Shared.icon name={:arrow_in} /><% end %>
@@ -746,7 +810,7 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
           <%= if @result do %>
             <% {:ok, ch} = @result %>
             <Shared.section_card num="✓" title="Channel created"
-                desc="The channel is created on Channex (inactive). Booking.com connections wait for OTA approval before they go live.">
+                desc="The channel is created on Channex. Activate it to go live and start syncing.">
               <Shared.field_grid cols={2}>
                 <div class="field">
                   <label class="field-label">Channel ID (Channex)</label>
@@ -757,13 +821,29 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
                   <input type="text" class="input mono" readonly value={get_in(ch, ["attributes", "title"]) || ch["title"] || "—"} />
                 </div>
               </Shared.field_grid>
-              <Shared.banner>
-                Once the connection is approved, push availability + rates from the
-                <.link navigate="/settings/channels" class="lnk">Overview tab</.link>.
-              </Shared.banner>
-              <div class="cx-nav">
-                <.link navigate="/settings/channels" class="sect-btn primary">Done — back to Overview</.link>
-              </div>
+
+              <%= if @error do %><Shared.banner kind="error"><%= @error %></Shared.banner><% end %>
+
+              <%= if @activated? do %>
+                <Shared.banner>
+                  <b>Channel activated.</b> It's live — rates and availability now sync to the OTA.
+                </Shared.banner>
+                <div class="cx-nav">
+                  <.link navigate="/settings/channels" class="sect-btn primary">Done — back to Overview</.link>
+                </div>
+              <% else %>
+                <Shared.banner kind="error">
+                  Your channel is created but <b>inactive</b> — activate it now to start pushing rates &amp;
+                  availability, or it stays paused until you do.
+                </Shared.banner>
+                <div class="cx-nav">
+                  <.link navigate="/settings/channels" class="sect-btn">Activate later</.link>
+                  <button type="button" class="sect-btn primary" phx-click="activate_created"
+                          disabled={@activating_created?}>
+                    <Shared.icon name={:check} /> <%= if @activating_created?, do: "Activating…", else: "Activate channel" %>
+                  </button>
+                </div>
+              <% end %>
             </Shared.section_card>
           <% else %>
             <Shared.section_card num="4" title="Review &amp; create"
