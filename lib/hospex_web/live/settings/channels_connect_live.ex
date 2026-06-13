@@ -16,12 +16,16 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
   alias HospexWeb.Settings.Shared
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(params, _session, socket) do
     info = Channex.connection_info()
+    edit_id = params["channel_id"]
+    mode = if edit_id, do: :edit, else: :new
 
     socket =
       assign(socket,
-        step: 1,
+        mode: mode,
+        edit_id: edit_id,
+        step: if(mode == :edit, do: 3, else: 1),
         info: info,
         channel: "BookingCom",
         # catalogue (step 1)
@@ -29,23 +33,24 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
         query: "",
         selected: nil,
         connected_by_code: %{},
-        # wizard (steps 2–4)
+        # wizard (steps 2–4) / edit
         form: %{"hotel_id" => "", "title" => "", "group_id" => ""},
         testing?: false,
         test_result: nil,
-        loading_map?: false,
+        loading_map?: mode == :edit,
         map_error: nil,
         mapping: nil,
         creating?: false,
+        saving?: false,
         result: nil,
         error: nil
       )
 
     socket =
-      if connected?(socket) and info.enabled? do
-        start_async(socket, :catalog, &Channels.connected/0)
-      else
-        socket
+      cond do
+        not (connected?(socket) and info.enabled?) -> socket
+        mode == :edit -> start_async(socket, :load_edit, fn -> Channels.edit_mapping(edit_id) end)
+        true -> start_async(socket, :catalog, &Channels.connected/0)
       end
 
     {:ok, socket}
@@ -71,6 +76,28 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
 
   def handle_event("clear_selection", _, socket) do
     {:noreply, assign(socket, selected: nil)}
+  end
+
+  def handle_event("save_mapping", _, socket) do
+    rows = (socket.assigns.mapping && socket.assigns.mapping.rows) || []
+    id = socket.assigns.edit_id
+
+    opts = [
+      channel: socket.assigns.channel,
+      hotel_id: String.trim(socket.assigns.form["hotel_id"] || ""),
+      title: blank_to_nil(socket.assigns.form["title"])
+    ]
+
+    {:noreply,
+     socket
+     |> assign(saving?: true, error: nil)
+     |> start_async(:save, fn ->
+       opts = Keyword.put(opts, :group_id, Channels.resolve_group_id())
+
+       with {:ok, attrs} <- Channels.build_create_attrs(rows, opts) do
+         Channels.update(id, attrs)
+       end
+     end)}
   end
 
   # Hand off the selected channel into the wizard (step 2).
@@ -228,6 +255,33 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
     {:noreply, assign(socket, creating?: false, error: "Create crashed: #{inspect(reason)}")}
   end
 
+  # ── edit mode (load + save) ───────────────────────────────────
+
+  def handle_async(:load_edit, {:ok, {:ok, data}}, socket) do
+    form = Map.merge(socket.assigns.form, %{"hotel_id" => data.hotel_id || "", "title" => data.title || ""})
+    {:noreply, assign(socket, loading_map?: false, channel: data.channel, mapping: data.mapping, form: form)}
+  end
+
+  def handle_async(:load_edit, {:ok, {:error, reason}}, socket) do
+    {:noreply, assign(socket, loading_map?: false, map_error: api_error(reason))}
+  end
+
+  def handle_async(:load_edit, {:exit, reason}, socket) do
+    {:noreply, assign(socket, loading_map?: false, map_error: "Load crashed: #{inspect(reason)}")}
+  end
+
+  def handle_async(:save, {:ok, {:ok, _}}, socket) do
+    {:noreply, push_navigate(socket, to: "/settings/channels")}
+  end
+
+  def handle_async(:save, {:ok, {:error, reason}}, socket) do
+    {:noreply, assign(socket, saving?: false, error: create_error(reason))}
+  end
+
+  def handle_async(:save, {:exit, reason}, socket) do
+    {:noreply, assign(socket, saving?: false, error: "Save crashed: #{inspect(reason)}")}
+  end
+
   def handle_async(:catalog, {:ok, {:ok, list}}, socket) when is_list(list) do
     by_code = Map.new(list, fn ch -> {channel_code(ch), channel_state(ch)} end)
     {:noreply, assign(socket, connected_by_code: by_code)}
@@ -336,17 +390,92 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
     end
   end
 
+  # The room/rate-plan mapping editor — shared by the connect wizard
+  # (step 3) and the edit-mapping screen.
+  attr :mapping, :map, required: true
+
+  defp mapping_table(assigns) do
+    ~H"""
+    <form phx-change="map_change">
+      <div class="cx-map">
+        <div class="cx-map-row head">
+          <div>Your rate plan</div>
+          <div>OTA room</div>
+          <div>OTA rate plan</div>
+          <div>Occ · price</div>
+        </div>
+        <%= for {row, i} <- Enum.with_index(@mapping.rows) do %>
+          <% room = Enum.find(@mapping.ota_rooms, &(to_string(&1.code) == to_string(row.ota_room_code))) %>
+          <div class="cx-map-row" data-off={if !row.include, do: "1"}>
+            <div class="cx-map-rp"><%= row.label %></div>
+            <div>
+              <select name={"rooms[#{i}]"} class="select">
+                <option value="">— none (skip) —</option>
+                <%= for r <- @mapping.ota_rooms do %>
+                  <option value={to_string(r.code)} selected={to_string(r.code) == to_string(row.ota_room_code)}>
+                    <%= r.title %>
+                  </option>
+                <% end %>
+              </select>
+            </div>
+            <div>
+              <select name={"rates[#{i}]"} class="select" disabled={is_nil(room)}>
+                <%= if room do %>
+                  <%= for rp <- room.rate_plans do %>
+                    <option value={to_string(rp.code)} selected={to_string(rp.code) == to_string(row.ota_rate_code)}>
+                      <%= rp.title %>
+                    </option>
+                  <% end %>
+                <% else %>
+                  <option value="">—</option>
+                <% end %>
+              </select>
+            </div>
+            <div class="mono"><%= row.occupancy %> · <%= row.pricing_type %></div>
+          </div>
+        <% end %>
+      </div>
+    </form>
+    """
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
     <Shared.chrome
       active={:channels}
       active_sub={:connect}
-      crumbs={["Settings", "Channels", "Connect"]}
-      page_title="Connect a channel"
-      page_sub="Connect an OTA to your Channex property: test the hotel id, map your rooms and rates, then create the channel."
+      crumbs={["Settings", "Channels", if(@mode == :edit, do: "Edit mapping", else: "Connect")]}
+      page_title={if @mode == :edit, do: "Edit mapping", else: "Connect a channel"}
+      page_sub={
+        if @mode == :edit,
+          do: "Update which OTA rooms and rate plans map to your rate plans, then save.",
+          else: "Connect an OTA to your Channex property: test the hotel id, map your rooms and rates, then create the channel."
+      }
       current_path="/settings/channels/connect">
 
+      <%= if @mode == :edit do %>
+        <Shared.section_card title={"Edit mapping — #{@channel}"}
+            desc="Re-map the OTA's rooms and rate plans, then save — this updates the channel on Channex.">
+          <:aside>
+            <span class="set-page-status"><span class="dot"></span><%= included_count(@mapping) %> mapped</span>
+          </:aside>
+          <%= cond do %>
+            <% @loading_map? -> %><Shared.banner>Loading the current mapping…</Shared.banner>
+            <% @map_error -> %><Shared.banner kind="error"><%= @map_error %></Shared.banner>
+            <% @mapping -> %><.mapping_table mapping={@mapping} />
+            <% true -> %>
+          <% end %>
+          <%= if @error do %><Shared.banner kind="error"><%= @error %></Shared.banner><% end %>
+          <div class="cx-nav">
+            <.link navigate="/settings/channels" class="sect-btn">Cancel</.link>
+            <button type="button" class="sect-btn primary" phx-click="save_mapping"
+                    disabled={@saving? or included_count(@mapping) == 0}>
+              <%= if @saving?, do: "Saving…", else: "Save mapping" %>
+            </button>
+          </div>
+        </Shared.section_card>
+      <% else %>
       <%= unless @info.property_channex_id do %>
         <Shared.banner kind="error">
           <b>Property not synced yet.</b> Run a <.link navigate="/settings/channels" class="lnk">full sync</.link>
@@ -559,46 +688,7 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
                   </Shared.banner>
                 <% end %>
 
-                <form phx-change="map_change">
-                  <div class="cx-map">
-                    <div class="cx-map-row head">
-                      <div>Your rate plan</div>
-                      <div>OTA room</div>
-                      <div>OTA rate plan</div>
-                      <div>Occ · price</div>
-                    </div>
-                    <%= for {row, i} <- Enum.with_index(@mapping.rows) do %>
-                      <% room = Enum.find(@mapping.ota_rooms, &(to_string(&1.code) == to_string(row.ota_room_code))) %>
-                      <div class="cx-map-row" data-off={if !row.include, do: "1"}>
-                        <div class="cx-map-rp"><%= row.label %></div>
-                        <div>
-                          <select name={"rooms[#{i}]"} class="select">
-                            <option value="">— none (skip) —</option>
-                            <%= for r <- @mapping.ota_rooms do %>
-                              <option value={to_string(r.code)} selected={to_string(r.code) == to_string(row.ota_room_code)}>
-                                <%= r.title %>
-                              </option>
-                            <% end %>
-                          </select>
-                        </div>
-                        <div>
-                          <select name={"rates[#{i}]"} class="select" disabled={is_nil(room)}>
-                            <%= if room do %>
-                              <%= for rp <- room.rate_plans do %>
-                                <option value={to_string(rp.code)} selected={to_string(rp.code) == to_string(row.ota_rate_code)}>
-                                  <%= rp.title %>
-                                </option>
-                              <% end %>
-                            <% else %>
-                              <option value="">—</option>
-                            <% end %>
-                          </select>
-                        </div>
-                        <div class="mono"><%= row.occupancy %> · <%= row.pricing_type %></div>
-                      </div>
-                    <% end %>
-                  </div>
-                </form>
+                <.mapping_table mapping={@mapping} />
 
                 <%= if @mapping.ota_rooms == [] do %>
                   <Shared.banner kind="error">
@@ -669,6 +759,7 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
             </Shared.section_card>
           <% end %>
         <% end %>
+      <% end %>
       <% end %>
     </Shared.chrome>
     """

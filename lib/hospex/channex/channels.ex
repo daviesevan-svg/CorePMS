@@ -84,6 +84,57 @@ defmodule Hospex.Channex.Channels do
   @doc "Push ARI to the channel / activate it (GET /channels/:id/execute/load_and_save_ari)."
   def load_and_save_ari(uuid), do: Client.get("/channels/#{uuid}/execute/load_and_save_ari")
 
+  @doc "Disconnect a channel (DELETE /channels/:id)."
+  def delete(uuid), do: Client.delete("/channels/#{uuid}")
+
+  @doc """
+  Load an existing channel for editing: returns `{:ok, %{channel,
+  hotel_id, mapping}}` where `mapping` is the proposed mapping
+  (`propose_mapping/1`) with rows pre-filled from the channel's current
+  Channex rate-plan mappings, or `{:error, reason}`.
+  """
+  def edit_mapping(channel_id) do
+    with {:ok, ch} <- get(channel_id) do
+      attrs = Map.get(ch, "attributes", %{})
+      channel = attrs["channel"]
+      hotel_id = get_in(attrs, ["settings", "hotel_id"])
+      existing = attrs["rate_plans"] || []
+
+      case mapping_details(channel, %{"hotel_id" => hotel_id}) do
+        {:ok, md} ->
+          proposed = propose_mapping(md)
+          rows = apply_existing(proposed.rows, existing)
+          {:ok, %{channel: channel, hotel_id: hotel_id, title: attrs["title"], mapping: %{proposed | rows: rows}}}
+
+        {:error, _} = err ->
+          err
+      end
+    end
+  end
+
+  # Overlay the channel's current mappings onto the proposed rows, matched
+  # by our Channex rate-plan id.
+  defp apply_existing(rows, existing) do
+    by_rp = Map.new(existing, fn e -> {e["rate_plan_id"], e["settings"] || %{}} end)
+
+    Enum.map(rows, fn row ->
+      case by_rp[row.rate_plan_cx_id] do
+        nil ->
+          row
+
+        s ->
+          %{
+            row
+            | ota_room_code: s["room_type_code"],
+              ota_rate_code: s["rate_plan_code"],
+              occupancy: s["occupancy"] || row.occupancy,
+              pricing_type: s["pricing_type"] || row.pricing_type,
+              include: not is_nil(s["room_type_code"])
+          }
+      end
+    end)
+  end
+
   @doc "Channex groups the account can access (GET /groups)."
   def groups, do: Client.get("/groups")
 

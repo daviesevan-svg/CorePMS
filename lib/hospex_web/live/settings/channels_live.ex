@@ -79,6 +79,17 @@ defmodule HospexWeb.Settings.ChannelsLive do
     {:noreply, socket |> assign(log_errors_only: not socket.assigns.log_errors_only) |> refresh_logs()}
   end
 
+  def handle_event("delete_channel", %{"id" => id, "code" => code}, socket) do
+    {:noreply,
+     socket
+     |> assign(channels_list: nil, channels_error: nil)
+     |> start_async(:delete_channel, fn ->
+       result = Channels.delete(id)
+       if match?({:ok, _}, result), do: Channex.delete_link("channel", Channels.channel_local_id(code))
+       result
+     end)}
+  end
+
   @impl true
   def handle_async(:full_sync, {:ok, {:ok, summary}}, socket) do
     {:noreply,
@@ -93,6 +104,17 @@ defmodule HospexWeb.Settings.ChannelsLive do
 
   def handle_async(:full_sync, {:exit, reason}, socket) do
     {:noreply, assign(socket, syncing?: false, sync_error: "Sync crashed: #{inspect(reason)}")}
+  end
+
+  def handle_async(:delete_channel, {:ok, {:ok, _}}, socket) do
+    {:noreply,
+     socket
+     |> assign(flash_msg: "Channel removed.")
+     |> start_async(:channels, &Channels.connected/0)}
+  end
+
+  def handle_async(:delete_channel, _result, socket) do
+    {:noreply, socket |> assign(sync_error: "Could not remove channel.") |> start_async(:channels, &Channels.connected/0)}
   end
 
   def handle_async(:channels, {:ok, {:ok, list}}, socket) when is_list(list) do
@@ -317,9 +339,14 @@ defmodule HospexWeb.Settings.ChannelsLive do
                 <div class="cx-chan-row">
                   <span class={"log-status #{if ch.state == "active", do: "ok", else: ""}"}></span>
                   <span class="cx-chan-title"><%= ch.title %></span>
-                  <span class="log-code"><%= ch.channel %></span>
                   <span class="log-code">hotel <%= ch.hotel_id %></span>
                   <span class="set-page-status"><span class="dot"></span><%= ch.state %></span>
+                  <.link navigate={"/settings/channels/connect/#{ch.id}"} class="sect-btn">Edit mapping</.link>
+                  <button type="button" class="sect-btn danger"
+                          phx-click="delete_channel" phx-value-id={ch.id} phx-value-code={ch.channel}
+                          data-confirm={"Remove #{ch.title}? This disconnects it from Channex."}>
+                    Remove
+                  </button>
                 </div>
               <% end %>
             </div>

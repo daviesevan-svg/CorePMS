@@ -125,6 +125,42 @@ defmodule Hospex.Channex.ChannelsTest do
     assert {:error, :property_not_synced} = Channels.build_create_attrs(rows, hotel_id: "1", title: "t")
   end
 
+  describe "edit_mapping/1" do
+    test "prefills rows from the channel's current Channex mappings" do
+      {:ok, _} = Channex.put_link("rate_plan", "flexible:classic-room", "rp-classic")
+
+      Req.Test.stub(Hospex.ChannexStub, fn conn ->
+        if conn.method == "GET" do
+          Req.Test.json(conn, %{
+            "data" => %{
+              "attributes" => %{
+                "channel" => "BookingCom",
+                "title" => "Booking.com — Test",
+                "settings" => %{"hotel_id" => "6519420"},
+                "rate_plans" => [
+                  %{
+                    "rate_plan_id" => "rp-classic",
+                    "settings" => %{"room_type_code" => 651_942_003, "rate_plan_code" => 18_527_582, "occupancy" => 2, "pricing_type" => "OBP"}
+                  }
+                ]
+              }
+            }
+          })
+        else
+          Req.Test.json(conn, %{"data" => mapping_response()})
+        end
+      end)
+
+      assert {:ok, %{channel: "BookingCom", hotel_id: "6519420", title: "Booking.com — Test", mapping: mapping}} =
+               Channels.edit_mapping("chan-uuid")
+
+      classic = Enum.find(mapping.rows, &(&1.room_type_id == "classic-room"))
+      assert classic.ota_room_code == 651_942_003
+      assert classic.ota_rate_code == 18_527_582
+      assert classic.include
+    end
+  end
+
   describe "API requests" do
     test "test_connection, mapping_details, and create hit the right endpoints" do
       test_pid = self()
