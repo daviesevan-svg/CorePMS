@@ -90,14 +90,19 @@ defmodule Hospex.Content.Pricing do
   """
   def rates_by_occupancy(plan, room_type_id, %Date{} = date) do
     case nightly_rate(plan, room_type_id, date) do
-      {:ok, _} ->
-        for occ <- 1..max_adults(room_type_id) do
-          {:ok, rate} = nightly_rate(plan, room_type_id, date, occ)
-          {occ, rate}
-        end
+      {:ok, base} -> occupancy_rates(plan, room_type_id, base)
+      :error -> []
+    end
+  end
 
-      :error ->
-        []
+  @doc """
+  Per-occupancy rates `[{occupancy, rate}, …]` for `1..max` derived from
+  an explicit `base_price` (already modifier-adjusted) — lets the
+  inventory override's base rate flow through the occupancy fees.
+  """
+  def occupancy_rates(plan, room_type_id, base_price) when is_number(base_price) do
+    for occ <- 1..max_adults(room_type_id) do
+      {occ, base_price + occupancy_adjustment(plan, room_type_id, occ)}
     end
   end
 
