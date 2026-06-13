@@ -69,6 +69,12 @@ defmodule Hospex.Channex do
     Repo.all(from l in Link, where: l.kind == ^kind, order_by: l.local_id)
   end
 
+  @doc "Delete the link for `{kind, local_id}` (no-op if absent)."
+  def delete_link(kind, local_id) do
+    Repo.delete_all(from l in Link, where: l.kind == ^kind and l.local_id == ^to_string(local_id))
+    :ok
+  end
+
   @doc """
   Connection summary for the Channels settings page: whether the
   integration is configured, the target base URL, the primary rate
