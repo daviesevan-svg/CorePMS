@@ -54,6 +54,7 @@ pricing:
     sunday: "+5%"
 
   extra_person_fee: 44   # base extra_person_fee + breakfast supplement
+  lower_occupancy_fee: 30
   child_fee: 22
   child_fee_max_age: 11
 

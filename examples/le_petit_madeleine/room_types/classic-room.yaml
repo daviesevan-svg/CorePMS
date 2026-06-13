@@ -19,6 +19,8 @@ max_occupancy:
   children: 1
   total: 2
 
+base_occupancy: 2
+
 size:
   sqm: 18
 

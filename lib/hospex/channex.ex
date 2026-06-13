@@ -176,16 +176,24 @@ defmodule Hospex.Channex do
         true ->
           plan_id = Map.get(plan, "id")
           rt_title = get_in(rt || %{}, ["name", "en"]) || rt_id
-          adults = get_in(rt || %{}, ["max_occupancy", "adults"]) || 2
+          base_occ = Pricing.base_occupancy(rt_id)
+          max_a = Pricing.max_adults(rt_id)
+
+          # Per-person: one option per occupancy 1..max, primary at the
+          # base occupancy. Rates are pushed via ARI, not set here.
+          options =
+            for occ <- 1..max_a do
+              %{"occupancy" => occ, "is_primary" => occ == base_occ, "rate" => 0}
+            end
 
           attrs = %{
             "property_id" => property_cx_id,
             "room_type_id" => rt_cx_id,
             "title" => "#{get_in(plan, ["name", "en"]) || plan_id} — #{rt_title}",
             "currency" => currency || "EUR",
-            "sell_mode" => "per_room",
+            "sell_mode" => "per_person",
             "rate_mode" => "manual",
-            "options" => [%{"occupancy" => adults, "is_primary" => true, "rate" => 0}]
+            "options" => options
           }
 
           upsert_entity("rate_plan", "#{plan_id}:#{rt_id}", "/rate_plans", %{"rate_plan" => attrs})
@@ -357,7 +365,7 @@ defmodule Hospex.Channex do
   # Inventory field → Channex restriction key. Unknown fields map to
   # :all (push the full cell rather than guess).
   @channex_field %{
-    "rate" => "rate",
+    "rate" => "rates",
     "min_stay" => "min_stay_arrival",
     "closed" => "stop_sell",
     "cta" => "closed_to_arrival",
@@ -396,9 +404,18 @@ defmodule Hospex.Channex do
       nil ->
         nil
 
-      rate ->
+      effective_base ->
+        # Per-person: occupancy-specific prices go in a `rates` array of
+        # {occupancy, rate} (cents) — not a single rate. The override/YAML
+        # base is the base-occupancy price; the plan's occupancy fees
+        # derive the rest.
+        rates =
+          plan
+          |> Pricing.occupancy_rates(rt_id, effective_base)
+          |> Enum.map(fn {occ, r} -> %{"occupancy" => occ, "rate" => r * 100} end)
+
         %{
-          "rate" => rate * 100,
+          "rates" => rates,
           "min_stay_arrival" => o[:min_stay] || min_stay,
           "stop_sell" => o[:closed] == true,
           "closed_to_arrival" => o[:cta] == true,

@@ -52,6 +52,7 @@ pricing:
     sunday: "+5%"
 
   extra_person_fee: 30
+  lower_occupancy_fee: 25
   child_fee: 15
   child_fee_max_age: 11
 

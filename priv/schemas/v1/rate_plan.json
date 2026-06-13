@@ -98,7 +98,12 @@
         "extra_person_fee": {
           "type": "number",
           "minimum": 0,
-          "description": "Surcharge per additional adult beyond the room's standard occupancy. In property currency, per night."
+          "description": "Surcharge per additional adult ABOVE the room's base_occupancy. In property currency, per night."
+        },
+        "lower_occupancy_fee": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Discount per adult BELOW the room's base_occupancy (subtracted from the base rate). In property currency, per night."
         },
         "child_fee": {
           "type": "number",

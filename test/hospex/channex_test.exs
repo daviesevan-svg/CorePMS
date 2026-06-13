@@ -22,6 +22,9 @@ defmodule Hospex.ChannexTest do
     :ok
   end
 
+  # Per-occupancy rates → Channex's `rates` array of {occupancy, rate} (cents).
+  defp occ_rates(rates), do: Enum.map(rates, fn {occ, r} -> %{"occupancy" => occ, "rate" => r * 100} end)
+
   describe "links" do
     test "put_link upserts on (kind, local_id)" do
       {:ok, _} = Channex.put_link("room_type", "classic-room", "uuid-1")
@@ -83,6 +86,44 @@ defmodule Hospex.ChannexTest do
     end
   end
 
+  describe "rate plan sync (per-person)" do
+    test "creates per_person/manual rate plans with one option per occupancy, primary at base" do
+      test_pid = self()
+
+      Req.Test.stub(Hospex.ChannexStub, fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+
+        if String.ends_with?(conn.request_path, "/rate_plans") and body != "" do
+          send(test_pid, {:rate_plan, Jason.decode!(body)["rate_plan"]})
+        end
+
+        Req.Test.json(conn, %{"data" => %{"id" => "cx-id"}})
+      end)
+
+      assert {:ok, _} = Channex.sync_content()
+
+      plans = drain_rate_plans([])
+      refute plans == []
+      assert Enum.all?(plans, &(&1["sell_mode"] == "per_person"))
+      assert Enum.all?(plans, &(&1["rate_mode"] == "manual"))
+
+      # junior-suite holds 3 adults, base occupancy 2.
+      jr = Enum.find(plans, &(length(&1["options"]) == 3))
+      assert jr, "expected a 3-occupancy rate plan (junior-suite)"
+      assert Enum.map(jr["options"], & &1["occupancy"]) == [1, 2, 3]
+      primary = Enum.find(jr["options"], & &1["is_primary"])
+      assert primary["occupancy"] == 2
+    end
+
+    defp drain_rate_plans(acc) do
+      receive do
+        {:rate_plan, body} -> drain_rate_plans([body | acc])
+      after
+        0 -> acc
+      end
+    end
+  end
+
   describe "restrictions push" do
     test "pushes primary-plan rates with inventory overrides layered on top" do
       {:ok, _} = Channex.put_link("property", "le-petit-madeleine", "prop-uuid")
@@ -121,14 +162,16 @@ defmodule Hospex.ChannexTest do
       base = by_date[Date.to_iso8601(today)]
       overridden = by_date[Date.to_iso8601(tomorrow)]
 
-      # Today: pure YAML pricing (in cents), no closures.
+      # Today: pure YAML pricing — per-occupancy rates (cents), no closures.
       plan = Hospex.Content.Pricing.primary_plan()
-      {:ok, expected} = Hospex.Content.Pricing.nightly_rate(plan, "classic-room", today)
-      assert base["rate"] == expected * 100
+      expected = occ_rates(Hospex.Content.Pricing.rates_by_occupancy(plan, "classic-room", today))
+      assert base["rates"] == expected
       assert base["closed_to_arrival"] == false
 
-      # Tomorrow: the staff override wins, in cents, with CTA set.
-      assert overridden["rate"] == 99_900
+      # Tomorrow: the staff override (base-occupancy 999) wins, with CTA set;
+      # occupancy fees derive the other tiers.
+      expected_override = occ_rates(Hospex.Content.Pricing.occupancy_rates(plan, "classic-room", 999))
+      assert overridden["rates"] == expected_override
       assert overridden["closed_to_arrival"] == true
       assert overridden["stop_sell"] == false
       assert overridden["rate_plan_id"] == "rp-flex-classic"
@@ -180,7 +223,7 @@ defmodule Hospex.ChannexTest do
       # Rate-only edits must NOT resend min-stay/closures.
       restriction_keys = values |> hd() |> Map.keys() |> MapSet.new()
 
-      assert MapSet.member?(restriction_keys, "rate")
+      assert MapSet.member?(restriction_keys, "rates")
 
       refute Enum.any?(
                ~w(min_stay_arrival stop_sell closed_to_arrival closed_to_departure),
@@ -215,11 +258,11 @@ defmodule Hospex.ChannexTest do
 
       closure_only = by_date[Date.to_iso8601(d)]
       assert Map.has_key?(closure_only, "stop_sell")
-      refute Map.has_key?(closure_only, "rate")
+      refute Map.has_key?(closure_only, "rates")
 
       mixed = by_date[Date.to_iso8601(Date.add(today, 16))]
       assert Map.has_key?(mixed, "stop_sell")
-      assert Map.has_key?(mixed, "rate")
+      assert Map.has_key?(mixed, "rates")
       refute Map.has_key?(mixed, "min_stay_arrival")
     end
   end

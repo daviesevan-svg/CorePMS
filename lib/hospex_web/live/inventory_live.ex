@@ -26,7 +26,7 @@ defmodule HospexWeb.InventoryLive do
       |> assign(room_groups: room_groups, all_stays: stays)
       |> assign(collapsed: %{}, overrides: Hospex.Inventory.load(), editing: nil, selection: nil)
       |> assign(plan: Pricing.primary_plan())
-      |> assign(visible_metrics: MapSet.new([:avail, :rate]))
+      |> assign(visible_metrics: MapSet.new([:avail, :rate]), show_occupancy: false)
       |> assign(dp_open: false, dp_month: Date.beginning_of_month(today))
       |> derive_view()
 
@@ -143,6 +143,10 @@ defmodule HospexWeb.InventoryLive do
         MapSet.put(socket.assigns.visible_metrics, metric)
       end
     {:noreply, assign(socket, :visible_metrics, set)}
+  end
+
+  def handle_event("toggle_occupancy", _params, socket) do
+    {:noreply, assign(socket, :show_occupancy, not socket.assigns.show_occupancy)}
   end
 
   # ── Cell editing ──────────────────────────────────────────────
@@ -392,6 +396,23 @@ defmodule HospexWeb.InventoryLive do
     InventoryDefaults.cell(plan, rt_id, date, overrides)
   end
 
+  def base_occupancy(rt_id), do: Pricing.base_occupancy(rt_id)
+
+  # Occupancies shown as read-only DERIVED rate rows — all tiers except
+  # the editable base occupancy (the "Rate" row).
+  def derived_occupancies(rt_id) do
+    base = Pricing.base_occupancy(rt_id)
+    Enum.reject(1..Pricing.max_adults(rt_id), &(&1 == base))
+  end
+
+  # Per-occupancy price derived from the cell's base-occupancy rate
+  # (override or YAML) + the plan's occupancy fees. Clamped at 0.
+  def occ_rate(plan, rt_id, date, overrides, occ) do
+    base_rate = cell_for(plan, rt_id, date, overrides).rate
+    rates = plan |> Pricing.occupancy_rates(rt_id, base_rate) |> Map.new()
+    max(Map.get(rates, occ, base_rate), 0)
+  end
+
   def avail_level(n, size), do: InventoryDefaults.avail_level(n, size)
 
   def all_metrics, do: @all_metrics
@@ -405,7 +426,7 @@ defmodule HospexWeb.InventoryLive do
 
   # Small uppercase sub-label, used in the sidebar for typographic hierarchy.
   def metric_sub(:avail),    do: "ROOMS OPEN"
-  def metric_sub(:rate),     do: "PER NIGHT"
+  def metric_sub(:rate),     do: "BASE OCC / NIGHT"
   def metric_sub(:min_stay), do: "NIGHTS"
   def metric_sub(:cta),      do: "CTA"
   def metric_sub(:ctd),      do: "CTD"
