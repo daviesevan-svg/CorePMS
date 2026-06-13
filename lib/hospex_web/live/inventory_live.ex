@@ -405,7 +405,7 @@ defmodule HospexWeb.InventoryLive do
 
   # Small uppercase sub-label, used in the sidebar for typographic hierarchy.
   def metric_sub(:avail),    do: "ROOMS OPEN"
-  def metric_sub(:rate),     do: "PER NIGHT"
+  def metric_sub(:rate),     do: "BASE OCC / NIGHT"
   def metric_sub(:min_stay), do: "NIGHTS"
   def metric_sub(:cta),      do: "CTA"
   def metric_sub(:ctd),      do: "CTD"
