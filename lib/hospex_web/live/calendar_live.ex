@@ -468,6 +468,7 @@ defmodule HospexWeb.CalendarLive do
       |> maybe_put_money(params, "tax_rate", :tax_rate)
       |> maybe_flag_touched_rate(target)
       |> normalize_dates()
+      |> maybe_reprice(socket.assigns.plan, target)
       |> snapshot_current_stay()
 
     {:noreply, assign(socket, :new_booking, f)}
@@ -1337,6 +1338,19 @@ defmodule HospexWeb.CalendarLive do
 
   defp maybe_flag_touched_rate(f, "rate_night"), do: %{f | user_touched_rate: true}
   defp maybe_flag_touched_rate(f, _),            do: f
+
+  # Re-price the flat nightly rate when the stay dates change (seasonal/
+  # dow + occupancy), unless staff set a manual rate or per-night rates
+  # are the source of truth.
+  defp maybe_reprice(f, plan, target) when target in ["start_date", "end_date"] do
+    if f.user_touched_rate or Map.get(f, :nightly_rates, []) != [] do
+      f
+    else
+      %{f | rate_night: nb_rate(plan, f.type_id, f.start_date, f.adults, f.kids)}
+    end
+  end
+
+  defp maybe_reprice(f, _plan, _target), do: f
 
   # Per-night rates are the source of truth while active — silently ignore
   # edits to the flat field. The UI also visually disables it.
