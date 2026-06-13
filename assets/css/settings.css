@@ -832,6 +832,9 @@ body{background:var(--bg-sunk)}
 .cx-map-row:last-child{border-bottom:none}
 .cx-map-row.head{font-size:11px;font-weight:600;color:var(--ink-4);text-transform:uppercase;letter-spacing:.04em;background:var(--bg-sunk)}
 .cx-map-row[data-off="1"]{opacity:.5}
+.cx-map-row[data-dup="1"]{background:var(--unpaid-bg);box-shadow:inset 2px 0 0 var(--unpaid-bar)}
+.cx-dup{font-size:11px;font-weight:600;color:var(--unpaid-ink);display:flex;align-items:center;gap:5px}
+.cx-dup::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--unpaid-bar)}
 .cx-map-rp{font-weight:500;color:var(--ink)}
 .cx-map-row .select{height:30px}
 

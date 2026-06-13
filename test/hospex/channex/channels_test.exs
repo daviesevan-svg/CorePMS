@@ -113,6 +113,15 @@ defmodule Hospex.Channex.ChannelsTest do
       assert rp["settings"]["primary_occ"] == true
     end
 
+    test "rejects mapping the same OTA room + rate to more than one rate plan" do
+      rows = [
+        %{rate_plan_cx_id: "rp-a", include: true, ota_room_code: 651_942_003, ota_rate_code: 18_527_581, occupancy: 2, pricing_type: "OBP"},
+        %{rate_plan_cx_id: "rp-b", include: true, ota_room_code: 651_942_003, ota_rate_code: 18_527_581, occupancy: 2, pricing_type: "OBP"}
+      ]
+
+      assert {:error, :duplicate_mapping} = Channels.build_create_attrs(rows, hotel_id: "1", title: "t")
+    end
+
     test "errors when nothing is mapped" do
       rows = [%{rate_plan_cx_id: "x", include: false, ota_room_code: nil, ota_rate_code: nil, occupancy: 2, pricing_type: "OBP"}]
       assert {:error, :no_mappings} = Channels.build_create_attrs(rows, hotel_id: "1", title: "t")

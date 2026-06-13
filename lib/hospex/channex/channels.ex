@@ -264,7 +264,8 @@ defmodule Hospex.Channex.Channels do
   @doc """
   Build the POST `/channels` inner `channel` map from reviewed rows.
   Only rows with `include: true` and both OTA codes present are sent.
-  Returns `{:ok, attrs}` or `{:error, :property_not_synced | :no_mappings}`.
+  Returns `{:ok, attrs}` or `{:error, :property_not_synced | :no_mappings
+  | :duplicate_mapping}`.
   """
   def build_create_attrs(rows, opts) do
     channel = opts[:channel] || "BookingCom"
@@ -288,9 +289,14 @@ defmodule Hospex.Channex.Channels do
         }
       end
 
+    keys = Enum.map(rate_plans, &{&1["settings"]["room_type_code"], &1["settings"]["rate_plan_code"]})
+
     cond do
       rate_plans == [] ->
         {:error, :no_mappings}
+
+      length(keys) != length(Enum.uniq(keys)) ->
+        {:error, :duplicate_mapping}
 
       true ->
         case Channex.connection_info().property_channex_id do

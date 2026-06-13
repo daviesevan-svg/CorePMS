@@ -368,6 +368,7 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
 
   defp create_error(:property_not_synced), do: "Run a full sync first — the property isn't on Channex yet."
   defp create_error(:no_mappings), do: "Map at least one room/rate plan before creating the channel."
+  defp create_error(:duplicate_mapping), do: "Each OTA room + rate plan can map to only one of your rate plans — remove the duplicate."
   defp create_error(other), do: api_error(other)
 
   defp blank_to_nil(s) when is_binary(s) do
@@ -382,6 +383,21 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
   defp included_count(nil), do: 0
   defp included_count(mapping), do: Enum.count(mapping.rows, & &1.include)
 
+  # {room, rate} pairs used by more than one included row — an OTA
+  # room+rate plan may map to only one of our rate plans.
+  defp duplicate_keys(rows) do
+    rows
+    |> Enum.filter(& &1.include)
+    |> Enum.map(&{&1.ota_room_code, &1.ota_rate_code})
+    |> Enum.frequencies()
+    |> Enum.filter(fn {_key, n} -> n > 1 end)
+    |> Enum.map(&elem(&1, 0))
+    |> MapSet.new()
+  end
+
+  defp has_duplicates?(nil), do: false
+  defp has_duplicates?(mapping), do: MapSet.size(duplicate_keys(mapping.rows)) > 0
+
   defp chip_icon(label) do
     cond do
       String.contains?(label, "Metasearch") -> :globe
@@ -395,6 +411,8 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
   attr :mapping, :map, required: true
 
   defp mapping_table(assigns) do
+    assigns = assign(assigns, :dups, duplicate_keys(assigns.mapping.rows))
+
     ~H"""
     <form phx-change="map_change">
       <div class="cx-map">
@@ -406,7 +424,8 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
         </div>
         <%= for {row, i} <- Enum.with_index(@mapping.rows) do %>
           <% room = Enum.find(@mapping.ota_rooms, &(to_string(&1.code) == to_string(row.ota_room_code))) %>
-          <div class="cx-map-row" data-off={if !row.include, do: "1"}>
+          <% dup? = row.include and MapSet.member?(@dups, {row.ota_room_code, row.ota_rate_code}) %>
+          <div class="cx-map-row" data-off={if !row.include, do: "1"} data-dup={if dup?, do: "1"}>
             <div class="cx-map-rp"><%= row.label %></div>
             <div>
               <select name={"rooms[#{i}]"} class="select">
@@ -431,7 +450,11 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
                 <% end %>
               </select>
             </div>
-            <div class="mono"><%= row.occupancy %> · <%= row.pricing_type %></div>
+            <%= if dup? do %>
+              <div class="cx-dup">Duplicate</div>
+            <% else %>
+              <div class="mono"><%= row.occupancy %> · <%= row.pricing_type %></div>
+            <% end %>
           </div>
         <% end %>
       </div>
@@ -466,11 +489,16 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
             <% @mapping -> %><.mapping_table mapping={@mapping} />
             <% true -> %>
           <% end %>
+          <%= if has_duplicates?(@mapping) do %>
+            <Shared.banner kind="error">
+              Each OTA room + rate plan can map to only one of your rate plans. Resolve the rows marked <b>Duplicate</b>.
+            </Shared.banner>
+          <% end %>
           <%= if @error do %><Shared.banner kind="error"><%= @error %></Shared.banner><% end %>
           <div class="cx-nav">
             <.link navigate="/settings/channels" class="sect-btn">Cancel</.link>
             <button type="button" class="sect-btn primary" phx-click="save_mapping"
-                    disabled={@saving? or included_count(@mapping) == 0}>
+                    disabled={@saving? or included_count(@mapping) == 0 or has_duplicates?(@mapping)}>
               <%= if @saving?, do: "Saving…", else: "Save mapping" %>
             </button>
           </div>
@@ -690,6 +718,12 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
 
                 <.mapping_table mapping={@mapping} />
 
+                <%= if has_duplicates?(@mapping) do %>
+                  <Shared.banner kind="error">
+                    Each OTA room + rate plan can map to only one of your rate plans. Resolve the rows marked <b>Duplicate</b>.
+                  </Shared.banner>
+                <% end %>
+
                 <%= if @mapping.ota_rooms == [] do %>
                   <Shared.banner kind="error">
                     Channex returned no rooms for this hotel id. Check the id, or inspect the raw
@@ -702,7 +736,7 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
             <div class="cx-nav">
               <button type="button" class="sect-btn" phx-click="back">← Back</button>
               <button type="button" class="sect-btn primary" phx-click="next"
-                      disabled={@loading_map? or included_count(@mapping) == 0}>
+                      disabled={@loading_map? or included_count(@mapping) == 0 or has_duplicates?(@mapping)}>
                 Next: review →
               </button>
             </div>
@@ -752,7 +786,7 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
               <div class="cx-nav">
                 <button type="button" class="sect-btn" phx-click="back">← Back</button>
                 <button type="button" class="sect-btn primary" phx-click="create"
-                        disabled={@creating? or included_count(@mapping) == 0 or is_nil(@info.property_channex_id)}>
+                        disabled={@creating? or included_count(@mapping) == 0 or has_duplicates?(@mapping) or is_nil(@info.property_channex_id)}>
                   <%= if @creating?, do: "Creating…", else: "Create channel" %>
                 </button>
               </div>
