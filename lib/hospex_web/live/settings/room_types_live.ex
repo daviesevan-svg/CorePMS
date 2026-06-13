@@ -80,6 +80,7 @@ defmodule HospexWeb.Settings.RoomTypesLive do
         |> put_path(["max_occupancy", "adults"], to_int(params["adults"]))
         |> put_path(["max_occupancy", "children"], to_int(params["children"]))
         |> put_path(["max_occupancy", "total"], to_int(params["total"]))
+        |> put_path(["base_occupancy"], to_int(params["base_occupancy"]))
         |> put_path(["size", "sqm"], to_num(params["sqm"]))
 
       case Property.save_room_type(patched) do
@@ -207,12 +208,12 @@ defmodule HospexWeb.Settings.RoomTypesLive do
             <Shared.field_grid cols={3}>
               <Shared.field label="Max total" name="total" type="number"
                 value={get_in(@editing, ["max_occupancy", "total"])} {%{min: "1"}} />
+              <Shared.field label="Base occupancy" name="base_occupancy" type="number"
+                value={Map.get(@editing, "base_occupancy")}
+                hint="Adults the rate is priced at; per-person fees adjust around it."
+                {%{min: "1"}} />
               <Shared.field label="Size (sqm)" name="sqm" type="number"
                 value={get_in(@editing, ["size", "sqm"])} {%{step: "0.1", min: "0"}} />
-              <div class="field">
-                <label class="field-label">Floor pref.</label>
-                <input type="text" class="input" readonly value="—" />
-              </div>
             </Shared.field_grid>
 
             <Shared.banner>
@@ -255,12 +256,12 @@ defmodule HospexWeb.Settings.RoomTypesLive do
                 <input type="text" class="input mono" readonly value={get_in(t, ["max_occupancy", "total"]) || "—"} />
               </div>
               <div class="field">
-                <label class="field-label">Size (sqm)</label>
-                <input type="text" class="input mono" readonly value={get_in(t, ["size", "sqm"]) || "—"} />
+                <label class="field-label">Base occupancy</label>
+                <input type="text" class="input mono" readonly value={Map.get(t, "base_occupancy") || "—"} />
               </div>
               <div class="field">
-                <label class="field-label">ID</label>
-                <input type="text" class="input mono" readonly value={Map.get(t, "id")} />
+                <label class="field-label">Size (sqm)</label>
+                <input type="text" class="input mono" readonly value={get_in(t, ["size", "sqm"]) || "—"} />
               </div>
             </Shared.field_grid>
           </Shared.section_card>
