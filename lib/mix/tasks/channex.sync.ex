@@ -17,19 +17,15 @@ defmodule Mix.Tasks.Channex.Sync do
       Mix.raise("CHANNEX_API_KEY is not set — see .env.example")
     end
 
-    case Hospex.Channex.sync_content() do
-      {:ok, summary} ->
+    case Hospex.Channex.full_sync() do
+      {:ok, %{content: summary, ari_ranges: n}} ->
         Mix.shell().info("Content synced: #{inspect(summary, pretty: true)}")
-
-      {:error, reason} ->
-        Mix.raise("Content sync failed: #{inspect(reason)}")
-    end
-
-    case Hospex.Channex.push_ari() do
-      {:ok, %{count: n}} ->
         Mix.shell().info("ARI pushed (#{n} restriction ranges + availability)")
 
-      {:error, reason} ->
+      {:error, {:content, reason}} ->
+        Mix.raise("Content sync failed: #{inspect(reason)}")
+
+      {:error, {:ari, reason}} ->
         Mix.raise("ARI push failed: #{inspect(reason)}")
     end
   end

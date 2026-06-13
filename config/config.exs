@@ -28,7 +28,9 @@ config :hospex, Oban,
        # refresh (drift correction — incremental pushes come from
        # Hospex.Channex.Listener). Both no-op when CHANNEX_API_KEY is unset.
        {"* * * * *", Hospex.Channex.Workers.PollBookings},
-       {"0 * * * *", Hospex.Channex.Workers.PushAri}
+       {"0 * * * *", Hospex.Channex.Workers.PushAri},
+       # Daily retention sweep for the API-call log (feed: 7d, rest: 90d).
+       {"15 3 * * *", Hospex.Channex.Workers.PruneApiLogs}
      ]}
   ],
   queues: [

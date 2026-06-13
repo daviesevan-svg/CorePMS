@@ -56,7 +56,7 @@ defmodule HospexWeb.Settings.Shared do
 
   # ── Top-level chrome ───────────────────────────────────────────
 
-  attr :active, :atom, required: true, values: [:property, :rooms_and_rates]
+  attr :active, :atom, required: true, values: [:property, :rooms_and_rates, :channels]
   attr :active_sub, :atom, default: nil
   attr :sections, :list, default: []
   attr :sub_anchors, :list, default: []
@@ -149,7 +149,7 @@ defmodule HospexWeb.Settings.Shared do
     %{label: "Workspace", items: [
       %{id: :property,      name: "Property",        icon: :building, href: "/settings/property"},
       %{id: :rooms_and_rates, name: "Rooms & Rates", icon: :bed,      href: "/settings/room-types"},
-      %{id: :channels,      name: "Channels",        icon: :link,     meta: "6"},
+      %{id: :channels,      name: "Channels",        icon: :link,     href: "/settings/channels"},
       %{id: :team,          name: "Team",            icon: :users,    meta: "12"}
     ]},
     %{label: "Finance", items: [
