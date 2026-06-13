@@ -42,6 +42,8 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
         mapping: nil,
         creating?: false,
         saving?: false,
+        activating_created?: false,
+        activated?: false,
         result: nil,
         error: nil
       )
@@ -186,6 +188,19 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
 
   # ── Create ────────────────────────────────────────────────────
 
+  def handle_event("activate_created", _, socket) do
+    case socket.assigns.result do
+      {:ok, %{"id" => id}} when is_binary(id) ->
+        {:noreply,
+         socket
+         |> assign(activating_created?: true, error: nil)
+         |> start_async(:activate_created, fn -> Channels.activate(id) end)}
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
+
   def handle_event("create", _, socket) do
     rows = (socket.assigns.mapping && socket.assigns.mapping.rows) || []
     channel = socket.assigns.channel
@@ -253,6 +268,18 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
 
   def handle_async(:create, {:exit, reason}, socket) do
     {:noreply, assign(socket, creating?: false, error: "Create crashed: #{inspect(reason)}")}
+  end
+
+  def handle_async(:activate_created, {:ok, {:ok, _}}, socket) do
+    {:noreply, assign(socket, activating_created?: false, activated?: true)}
+  end
+
+  def handle_async(:activate_created, {:ok, {:error, reason}}, socket) do
+    {:noreply, assign(socket, activating_created?: false, error: "Activation failed: #{api_error(reason)}")}
+  end
+
+  def handle_async(:activate_created, {:exit, reason}, socket) do
+    {:noreply, assign(socket, activating_created?: false, error: "Activation crashed: #{inspect(reason)}")}
   end
 
   # ── edit mode (load + save) ───────────────────────────────────
@@ -746,7 +773,7 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
           <%= if @result do %>
             <% {:ok, ch} = @result %>
             <Shared.section_card num="✓" title="Channel created"
-                desc="The channel is created on Channex (inactive). Booking.com connections wait for OTA approval before they go live.">
+                desc="The channel is created on Channex. Activate it to go live and start syncing.">
               <Shared.field_grid cols={2}>
                 <div class="field">
                   <label class="field-label">Channel ID (Channex)</label>
@@ -757,13 +784,29 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
                   <input type="text" class="input mono" readonly value={get_in(ch, ["attributes", "title"]) || ch["title"] || "—"} />
                 </div>
               </Shared.field_grid>
-              <Shared.banner>
-                Once the connection is approved, push availability + rates from the
-                <.link navigate="/settings/channels" class="lnk">Overview tab</.link>.
-              </Shared.banner>
-              <div class="cx-nav">
-                <.link navigate="/settings/channels" class="sect-btn primary">Done — back to Overview</.link>
-              </div>
+
+              <%= if @error do %><Shared.banner kind="error"><%= @error %></Shared.banner><% end %>
+
+              <%= if @activated? do %>
+                <Shared.banner>
+                  <b>Channel activated.</b> It's live — rates and availability now sync to the OTA.
+                </Shared.banner>
+                <div class="cx-nav">
+                  <.link navigate="/settings/channels" class="sect-btn primary">Done — back to Overview</.link>
+                </div>
+              <% else %>
+                <Shared.banner kind="error">
+                  Your channel is created but <b>inactive</b> — activate it now to start pushing rates &amp;
+                  availability, or it stays paused until you do.
+                </Shared.banner>
+                <div class="cx-nav">
+                  <.link navigate="/settings/channels" class="sect-btn">Activate later</.link>
+                  <button type="button" class="sect-btn primary" phx-click="activate_created"
+                          disabled={@activating_created?}>
+                    <Shared.icon name={:check} /> <%= if @activating_created?, do: "Activating…", else: "Activate channel" %>
+                  </button>
+                </div>
+              <% end %>
             </Shared.section_card>
           <% else %>
             <Shared.section_card num="4" title="Review &amp; create"
