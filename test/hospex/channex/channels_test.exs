@@ -61,8 +61,8 @@ defmodule Hospex.Channex.ChannelsTest do
       assert length(rows) == 3
 
       classic = Enum.find(rows, &(&1.room_type_id == "classic-room"))
-      assert classic.ota_room_code == "651942003"
-      assert classic.ota_rate_code == "18527581"
+      assert classic.ota_room_code == 651_942_003
+      assert classic.ota_rate_code == 18_527_581
       assert classic.occupancy == 2
       assert classic.pricing_type == "OBP"
       assert classic.include
@@ -103,8 +103,11 @@ defmodule Hospex.Channex.ChannelsTest do
       # Only the matched classic-room row is included (junior-suite unmatched).
       assert [rp] = attrs["rate_plans"]
       assert rp["rate_plan_id"] == "rp-classic"
-      assert rp["settings"]["room_type_code"] == "651942003"
-      assert rp["settings"]["rate_plan_code"] == "18527581"
+      assert rp["settings"]["room_type_code"] == 651_942_003
+      assert rp["settings"]["rate_plan_code"] == 18_527_581
+      # Codes must stay integers — Channex files string codes as "removed rates".
+      assert is_integer(rp["settings"]["room_type_code"])
+      assert is_integer(rp["settings"]["rate_plan_code"])
       assert rp["settings"]["occupancy"] == 2
       assert rp["settings"]["pricing_type"] == "OBP"
       assert rp["settings"]["primary_occ"] == true

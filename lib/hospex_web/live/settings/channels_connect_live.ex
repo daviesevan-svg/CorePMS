@@ -120,24 +120,28 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
 
   def handle_event("map_change", params, socket) do
     rooms = params["rooms"] || %{}
+    rates = params["rates"] || %{}
     ota_rooms = socket.assigns.mapping.ota_rooms
 
     rows =
       socket.assigns.mapping.rows
       |> Enum.with_index()
       |> Enum.map(fn {row, i} ->
-        code = rooms[to_string(i)]
+        room_code = rooms[to_string(i)]
+        rate_code = rates[to_string(i)]
+        # Form values are strings; OTA codes are native (integers for
+        # Booking.com) — match by string, store the native code.
+        ota = room_code not in [nil, ""] && Enum.find(ota_rooms, &(to_string(&1.code) == room_code))
 
-        # A row is "included" iff an OTA room is selected ("— none —"
-        # excludes it); the room's first rate is the mapping target.
-        if is_binary(code) and code != "" do
-          ota = Enum.find(ota_rooms, &(&1.code == code))
-          rate = ota && List.first(ota.rate_plans)
+        if ota do
+          rate =
+            Enum.find(ota.rate_plans, &(to_string(&1.code) == to_string(rate_code))) ||
+              List.first(ota.rate_plans)
 
           %{
             row
-            | ota_room_code: code,
-              ota_room_title: ota && ota.title,
+            | ota_room_code: ota.code,
+              ota_room_title: ota.title,
               ota_rate_code: rate && rate.code,
               occupancy: (rate && rate.occupancy) || row.occupancy,
               pricing_type: (rate && rate.pricing_type) || row.pricing_type,
@@ -559,25 +563,38 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
                   <div class="cx-map">
                     <div class="cx-map-row head">
                       <div>Your rate plan</div>
-                      <div>OTA room (pick to map)</div>
-                      <div>Occ.</div>
-                      <div>Pricing</div>
+                      <div>OTA room</div>
+                      <div>OTA rate plan</div>
+                      <div>Occ · price</div>
                     </div>
                     <%= for {row, i} <- Enum.with_index(@mapping.rows) do %>
+                      <% room = Enum.find(@mapping.ota_rooms, &(to_string(&1.code) == to_string(row.ota_room_code))) %>
                       <div class="cx-map-row" data-off={if !row.include, do: "1"}>
                         <div class="cx-map-rp"><%= row.label %></div>
                         <div>
                           <select name={"rooms[#{i}]"} class="select">
                             <option value="">— none (skip) —</option>
                             <%= for r <- @mapping.ota_rooms do %>
-                              <option value={r.code} selected={r.code == row.ota_room_code}>
-                                <%= r.title %> (<%= r.code %>)
+                              <option value={to_string(r.code)} selected={to_string(r.code) == to_string(row.ota_room_code)}>
+                                <%= r.title %>
                               </option>
                             <% end %>
                           </select>
                         </div>
-                        <div class="mono"><%= row.occupancy %></div>
-                        <div class="mono"><%= row.pricing_type %></div>
+                        <div>
+                          <select name={"rates[#{i}]"} class="select" disabled={is_nil(room)}>
+                            <%= if room do %>
+                              <%= for rp <- room.rate_plans do %>
+                                <option value={to_string(rp.code)} selected={to_string(rp.code) == to_string(row.ota_rate_code)}>
+                                  <%= rp.title %>
+                                </option>
+                              <% end %>
+                            <% else %>
+                              <option value="">—</option>
+                            <% end %>
+                          </select>
+                        </div>
+                        <div class="mono"><%= row.occupancy %> · <%= row.pricing_type %></div>
                       </div>
                     <% end %>
                   </div>

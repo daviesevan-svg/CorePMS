@@ -120,14 +120,17 @@ defmodule Hospex.Channex.Channels do
     |> dig_rooms()
     |> Enum.map(fn rt ->
       %{
-        code: to_string(pick(rt, ["room_type_code", "code", "id"])),
+        # Keep codes in their native type — Channex returns integers for
+        # Booking.com room_type_code / rate_plan_code and the create API
+        # rejects them as strings (mappings land under "removed rates").
+        code: pick(rt, ["room_type_code", "code", "id"]),
         title: pick(rt, ["title", "name"]) || "",
         rate_plans:
           (Map.get(rt, "rates") || Map.get(rt, "rate_plans") || [])
           |> List.wrap()
           |> Enum.map(fn rp ->
             %{
-              code: to_string(pick(rp, ["rate_plan_code", "code", "id"])),
+              code: pick(rp, ["rate_plan_code", "code", "id"]),
               title: pick(rp, ["title", "name"]) || "",
               occupancy: pick(rp, ["max_persons", "occupancy"]) |> to_int(2),
               pricing_type: pricing_type(rp)

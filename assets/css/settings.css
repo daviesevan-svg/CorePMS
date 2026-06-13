@@ -826,7 +826,7 @@ body{background:var(--bg-sunk)}
 
 .cx-map{display:flex;flex-direction:column;border:1px solid var(--line);border-radius:9px;overflow:hidden}
 .cx-map-row{
-  display:grid;grid-template-columns:1.6fr 2fr .5fr .6fr;gap:10px;align-items:center;
+  display:grid;grid-template-columns:1.5fr 1.5fr 1.5fr .9fr;gap:10px;align-items:center;
   padding:8px 12px;border-bottom:1px solid var(--line);font-size:12.5px;background:var(--bg-elev)
 }
 .cx-map-row:last-child{border-bottom:none}
