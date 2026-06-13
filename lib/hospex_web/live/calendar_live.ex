@@ -1,7 +1,7 @@
 defmodule HospexWeb.CalendarLive do
   use HospexWeb, :live_view
 
-  alias Hospex.Content.BookingDetails
+  alias Hospex.Content.{BookingDetails, Pricing}
   alias Hospex.Bookings
 
   @months_abbr ~w(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec)
@@ -44,6 +44,7 @@ defmodule HospexWeb.CalendarLive do
       |> assign(today: today, anchor: anchor,
                 zoom_level: @zoom_default, zoom_max: @zoom_max, view_span: zoom.span)
       |> assign(room_groups: room_groups, all_bookings: bookings, all_stays: stays, all_rooms: all_rooms)
+      |> assign(plan: Pricing.primary_plan())
       |> assign(collapsed: %{}, selected_booking: nil, drawer_tab: "details",
                 focused_stay_id: nil, expanded_stays: MapSet.new(),
                 rate_breakdown_open: MapSet.new(),
@@ -530,7 +531,11 @@ defmodule HospexWeb.CalendarLive do
 
   def handle_event("nb_set_type", %{"id" => type_id}, %{assigns: %{new_booking: f}} = socket)
       when not is_nil(f) do
-    rate = if f.user_touched_rate, do: f.rate_night, else: nb_base_rate(type_id)
+    rate =
+      if f.user_touched_rate,
+        do: f.rate_night,
+        else: nb_rate(socket.assigns.plan, type_id, f.start_date, f.adults, f.kids)
+
     f = %{f | type_id: type_id, room_id: "auto", rate_night: rate} |> snapshot_current_stay()
     {:noreply, assign(socket, :new_booking, f)}
   end
@@ -541,7 +546,18 @@ defmodule HospexWeb.CalendarLive do
     {min_v, max_v} = if field == "adults", do: {1, 8}, else: {0, 6}
     key = String.to_existing_atom(field)
     new_v = f |> Map.get(key) |> Kernel.+(delta) |> max(min_v) |> min(max_v)
-    f = f |> Map.put(key, new_v) |> snapshot_current_stay()
+    f = Map.put(f, key, new_v)
+
+    # Re-price for the new party size unless the staff set a manual rate
+    # or per-night rates are in play (those are the source of truth then).
+    f =
+      if f.user_touched_rate or Map.get(f, :nightly_rates, []) != [] do
+        f
+      else
+        %{f | rate_night: nb_rate(socket.assigns.plan, f.type_id, f.start_date, f.adults, f.kids)}
+      end
+
+    f = snapshot_current_stay(f)
     {:noreply, assign(socket, :new_booking, f)}
   end
 
@@ -1196,6 +1212,19 @@ defmodule HospexWeb.CalendarLive do
   def nb_countries, do: @nb_countries
   def nb_base_rate(type_id), do: Map.get(@nb_base_rates, type_id, 170)
 
+  @doc """
+  Nightly rate for a new-booking row from the real pricing model:
+  per-person base rate for `adults` at the room type's base occupancy
+  (+ `child_fee × kids`). Falls back to the mock base rate when the
+  room type isn't priced by the plan (e.g. the manual "std" placeholder).
+  """
+  def nb_rate(plan, type_id, %Date{} = date, adults, kids) do
+    case plan && Pricing.nightly_rate(plan, type_id, date, max(adults, 1)) do
+      {:ok, base} -> base + kids * Pricing.child_fee(plan)
+      _ -> nb_base_rate(type_id)
+    end
+  end
+
 
   # Open the new-booking drawer pre-filled with the selected booking's
   # values, marked with `edit_id` so Save updates instead of creates.
@@ -1219,7 +1248,7 @@ defmodule HospexWeb.CalendarLive do
       end_date:          end_date,
       type_id:           type_id,
       room_id:           room_id || "auto",
-      rate_night:        nb_base_rate(type_id),
+      rate_night:        nb_rate(Pricing.primary_plan(), type_id, start_date, 2, 0),
       cleaning_fee:      0,
       tax_rate:          10,
       user_touched_rate: false,
@@ -1846,7 +1875,7 @@ defmodule HospexWeb.CalendarLive do
     {:noreply,
      socket
      |> assign(room_groups: room_groups, all_bookings: bookings,
-               all_stays: stays, all_rooms: all_rooms)
+               all_stays: stays, all_rooms: all_rooms, plan: Pricing.primary_plan())
      |> derive_view()}
   end
 

@@ -1167,7 +1167,7 @@
                   </div>
                   <div class="nb-room-meta">
                     <span class="beds"><%= g.beds %></span>
-                    <span class="price">€<%= nb_base_rate(g.id) %>/n</span>
+                    <span class="price">€<%= nb_rate(@plan, g.id, nb.start_date, nb.adults, nb.kids) %>/n</span>
                   </div>
                 </button>
               <% end %>
