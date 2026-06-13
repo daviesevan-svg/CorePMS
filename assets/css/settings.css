@@ -76,6 +76,7 @@
   background:var(--paid-bg);color:var(--paid-ink)
 }
 .set-page-status .dot{width:6px;height:6px;border-radius:50%;background:var(--paid-bar)}
+.set-page-status .dot.fail{background:var(--unpaid-bar)}
 
 .set-scroll{
   flex:1;min-height:0;overflow-y:auto;padding:0 36px 140px;background:var(--bg-sunk);
@@ -286,7 +287,10 @@
 .sect-btn svg{width:12px;height:12px}
 .sect-btn.danger{color:var(--unpaid-ink);border-color:var(--line)}
 .sect-btn.danger:hover{background:var(--unpaid-bg);border-color:var(--unpaid-bar)}
+.sect-btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.sect-btn.primary:hover{background:var(--accent);border-color:var(--accent);color:#fff;filter:brightness(1.06)}
 .sect-btn[disabled]{opacity:.5;cursor:not-allowed}
+.sect-btn.primary[disabled]:hover{filter:none}
 
 /* Compact room row (rooms page) */
 .room-row-actions{display:flex;flex-direction:row;align-items:flex-end;gap:8px}
@@ -635,3 +639,48 @@
 .banner .actions button:hover{background:oklch(88% 0.06 264)}
 
 body{background:var(--bg-sunk)}
+
+/* ── Channex API activity log ─────────────────────────────────── */
+.seg-pick.compact{height:28px;padding:2px}
+.seg-pick.compact button{padding:3px 9px;font-size:11.5px}
+.log-toolbar{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+
+.log-list{
+  border:1px solid var(--line);border-radius:9px;overflow:hidden;
+  background:var(--bg-elev)
+}
+.log-row{border-bottom:1px solid var(--line)}
+.log-row:last-child{border-bottom:none}
+.log-row-head{
+  display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;
+  font-size:12.5px;user-select:none
+}
+.log-row-head:hover{background:var(--bg-sunk)}
+.log-status{width:7px;height:7px;border-radius:50%;flex:none;background:var(--ink-4)}
+.log-status.ok{background:var(--paid-bar)}
+.log-status.fail{background:var(--unpaid-bar)}
+.log-method{
+  font-family:'Geist Mono',monospace;font-weight:600;font-size:11px;
+  color:var(--ink-3);min-width:46px
+}
+.log-url{
+  font-family:'Geist Mono',monospace;color:var(--ink);flex:1;min-width:0;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap
+}
+.log-code{font-family:'Geist Mono',monospace;font-size:11.5px;color:var(--ink-3);white-space:nowrap}
+.log-time{color:var(--ink-4);font-size:11px;white-space:nowrap}
+.log-detail{
+  padding:12px;background:var(--bg-sunk);border-top:1px solid var(--line);
+  display:flex;flex-direction:column;gap:10px
+}
+.log-detail-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.log-detail-label{
+  font-size:10.5px;font-weight:600;color:var(--ink-4);text-transform:uppercase;
+  letter-spacing:.04em;margin-bottom:4px
+}
+.log-pre{
+  margin:0;padding:10px;background:var(--bg-elev);border:1px solid var(--line);
+  border-radius:7px;font-family:'Geist Mono',monospace;font-size:11.5px;
+  line-height:1.5;color:var(--ink-2);overflow:auto;max-height:300px;
+  white-space:pre-wrap;word-break:break-word
+}

@@ -57,6 +57,27 @@ defmodule Hospex.Channex.Workers.PushAri do
   defp parse_cell(_), do: nil
 end
 
+defmodule Hospex.Channex.Workers.PruneApiLogs do
+  @moduledoc """
+  Daily retention sweep for `Hospex.Channex.ApiLog`: drops booking-feed
+  poll records after a week and everything else after ~3 months. Runs
+  regardless of whether the integration is configured (it only touches
+  the local table).
+  """
+  use Oban.Worker, queue: :default, max_attempts: 3
+
+  alias Hospex.Channex.ApiLog
+
+  require Logger
+
+  @impl Oban.Worker
+  def perform(_job) do
+    {:ok, %{feed: feed, other: other}} = ApiLog.prune()
+    Logger.info("Pruned Channex API logs: #{feed} feed + #{other} other")
+    :ok
+  end
+end
+
 defmodule Hospex.Channex.Workers.PollBookings do
   @moduledoc """
   Polls the Channex booking-revisions feed every minute (cron) and

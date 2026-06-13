@@ -3,6 +3,7 @@ defmodule Hospex.ChannexTest do
 
   alias Hospex.Bookings
   alias Hospex.Channex
+  alias Hospex.Channex.ApiLog
   alias Hospex.Channex.Ingest
   alias Hospex.Repo
 
@@ -220,6 +221,84 @@ defmodule Hospex.ChannexTest do
       assert Map.has_key?(mixed, "stop_sell")
       assert Map.has_key?(mixed, "rate")
       refute Map.has_key?(mixed, "min_stay_arrival")
+    end
+  end
+
+  describe "API call logging" do
+    test "records a row per call with method, url, status, payload and response" do
+      {:ok, _} = Channex.put_link("property", "le-petit-madeleine", "prop-uuid")
+      {:ok, _} = Channex.put_link("room_type", "classic-room", "rt-classic")
+      {:ok, _} = Channex.put_link("room_type", "deluxe-sea-view", "rt-deluxe")
+      {:ok, _} = Channex.put_link("room_type", "junior-suite", "rt-suite")
+
+      Req.Test.stub(Hospex.ChannexStub, fn conn ->
+        Req.Test.json(conn, %{"data" => %{}})
+      end)
+
+      assert {:ok, _} = Channex.push_availability(3)
+
+      assert [log | _] = ApiLog.recent(10)
+      assert log.method == "POST"
+      assert log.url == "https://channex.test/api/v1/availability"
+      assert log.status == 200
+      assert log.success == true
+      assert %{"values" => _} = log.request_body
+      assert log.response_body == %{"data" => %{}}
+      assert is_integer(log.duration_ms)
+    end
+
+    test "records failures with success: false and the HTTP error body" do
+      {:ok, _} = Channex.put_link("property", "le-petit-madeleine", "prop-uuid")
+      {:ok, _} = Channex.put_link("room_type", "classic-room", "rt-classic")
+      {:ok, _} = Channex.put_link("room_type", "deluxe-sea-view", "rt-deluxe")
+      {:ok, _} = Channex.put_link("room_type", "junior-suite", "rt-suite")
+
+      Req.Test.stub(Hospex.ChannexStub, fn conn ->
+        conn |> Plug.Conn.put_status(422) |> Req.Test.json(%{"errors" => %{"detail" => "nope"}})
+      end)
+
+      assert {:error, {:http, 422, _}} = Channex.push_availability(3)
+
+      assert [log | _] = ApiLog.recent(10, errors_only: true)
+      assert log.success == false
+      assert log.status == 422
+      assert log.response_body == %{"errors" => %{"detail" => "nope"}}
+    end
+
+    test "categorises calls and prunes by retention window" do
+      Req.Test.stub(Hospex.ChannexStub, fn conn -> Req.Test.json(conn, %{"data" => []}) end)
+
+      # An inbound feed poll → category "feed".
+      assert {:ok, _} = Ingest.poll()
+      assert [feed_log | _] = ApiLog.recent(10, category: "feed")
+      assert feed_log.category == "feed"
+
+      # Hand-insert aged rows to exercise the retention windows.
+      now = NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+      old = fn days -> NaiveDateTime.add(now, -days * 86_400, :second) end
+
+      {:ok, _} = insert_log("feed", old.(10))    # stale feed (>7d) → pruned
+      {:ok, _} = insert_log("feed", old.(3))     # fresh feed (<7d) → kept
+      {:ok, _} = insert_log("ari", old.(60))     # ARI within 90d → kept
+      {:ok, _} = insert_log("ari", old.(120))    # ARI past 90d → pruned
+
+      # 1 stale feed + 1 stale ARI removed; recent poll + fresh feed + recent ARI kept.
+      assert {:ok, %{feed: 1, other: 1}} = ApiLog.prune()
+
+      assert length(ApiLog.recent(50, category: "feed")) == 2
+      assert length(ApiLog.recent(50, category: "ari")) == 1
+    end
+
+    defp insert_log(category, inserted_at) do
+      %ApiLog{
+        method: "POST",
+        url: "https://channex.test/api/v1/#{category}",
+        category: category,
+        success: true,
+        status: 200,
+        inserted_at: inserted_at
+      }
+      |> Hospex.Repo.insert()
     end
   end
 

@@ -64,6 +64,32 @@ defmodule Hospex.Channex do
     )
   end
 
+  @doc "All links of a given kind (\"property\"/\"room_type\"/\"rate_plan\"/\"booking\"), ordered by local id."
+  def links(kind) do
+    Repo.all(from l in Link, where: l.kind == ^kind, order_by: l.local_id)
+  end
+
+  @doc """
+  Connection summary for the Channels settings page: whether the
+  integration is configured, the target base URL, the primary rate
+  plan, and the mapped property (local slug + Channex UUID + when it
+  was last synced). `property_channex_id` is `nil` until the first
+  sync creates the property on Channex.
+  """
+  def connection_info do
+    cfg = Application.get_env(:hospex, Hospex.Channex, [])
+    link = Repo.one(from l in Link, where: l.kind == "property", limit: 1)
+
+    %{
+      enabled?: enabled?(),
+      base_url: cfg[:base_url],
+      primary_rate_plan: Application.get_env(:hospex, :primary_rate_plan),
+      property_local_id: link && link.local_id,
+      property_channex_id: link && link.channex_id,
+      synced_at: link && link.updated_at
+    }
+  end
+
   # ── Content sync ──────────────────────────────────────────────
 
   @doc """
@@ -379,6 +405,29 @@ defmodule Hospex.Channex do
   def push_ari(days \\ @ari_horizon_days) do
     with {:ok, _} <- push_availability(days) do
       push_restrictions(days)
+    end
+  end
+
+  @doc """
+  One-shot full sync — the single source of truth for both
+  `mix channex.sync` and the Channels settings page. Pushes content
+  (property, room types, rate plans), then availability + rates for
+  the next year.
+
+  Returns `{:ok, %{content: content_summary, ari_ranges: count}}`, or
+  `{:error, {:content | :ari, reason}}` so the caller can report which
+  stage failed.
+  """
+  def full_sync do
+    case sync_content() do
+      {:ok, content} ->
+        case push_ari() do
+          {:ok, %{count: n}} -> {:ok, %{content: content, ari_ranges: n}}
+          {:error, reason} -> {:error, {:ari, reason}}
+        end
+
+      {:error, reason} ->
+        {:error, {:content, reason}}
     end
   end
 
