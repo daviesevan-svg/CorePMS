@@ -109,6 +109,19 @@ defmodule Hospex.Bookings do
   def get_booking(booking_id), do: Store.get_booking(booking_id)
 
   @doc """
+  Most recent booking audit events across all bookings, newest first,
+  with the parent booking preloaded — for the dashboard activity feed.
+  """
+  def recent_events(limit \\ 12) do
+    Repo.all(
+      from e in BookingEvent,
+        order_by: [desc: e.at, desc: e.id],
+        limit: ^limit,
+        preload: [:booking]
+    )
+  end
+
+  @doc """
   Windowed calendar load: returns the same `{room_groups, bookings,
   stays}` tuple, but only for bookings overlapping
   `[anchor - buffer_days, anchor + span + buffer_days)`. The buffer

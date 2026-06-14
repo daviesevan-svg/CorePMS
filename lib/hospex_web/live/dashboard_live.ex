@@ -20,24 +20,14 @@ defmodule HospexWeb.DashboardLive do
 
   defp load_dashboard(socket) do
     today = Date.utc_today()
-    {room_groups, bookings, stays} = Bookings.load_calendar()
-    all_rooms = Enum.flat_map(room_groups, & &1.rooms)
+    {_room_groups, _bookings, stays} = Bookings.load_calendar()
 
     socket
-    |> assign(today: today,
-              date_label: date_label(today),
-              room_groups: room_groups,
-              all_rooms: all_rooms,
-              bookings: bookings,
-              stays: stays)
-    |> assign(:arrivals,     arrivals(stays, today))
-    |> assign(:departures,   departures(stays, today))
-    |> assign(:kpis,         kpis(stays, all_rooms, today))
-    |> assign(:forecast,     forecast(stays, all_rooms, today))
-    |> assign(:channel_mix,  channel_mix(bookings))
-    |> assign(:housekeeping, housekeeping(all_rooms))
-    |> assign(:outstanding,  outstanding(bookings, today))
-    |> assign(:activity,     activity_feed(today))
+    |> assign(today: today, date_label: date_label(today))
+    |> assign(:arrivals,   arrivals(stays, today))
+    |> assign(:departures, departures(stays, today))
+    |> assign(:activity,   activity_feed())
+    |> assign(:tasks,      tasks())
   end
 
   # ── Arrivals / Departures ─────────────────────────────────
@@ -97,8 +87,7 @@ defmodule HospexWeb.DashboardLive do
   end
 
   # Three-state payment classification driven by total vs paid (and the
-  # `:ota_collect` carry-over from MockCalendarData). Returns
-  # `{css_class, human_label}` — class hooks into .row-status[data-s].
+  # `:ota_collect` carry-over). Returns `{css_class, human_label}`.
   defp payment_state(%{status: :ota_collect}), do: {"ota", "Channel collect"}
   defp payment_state(%{total: 0}),              do: {"paid",    "Paid"}
   defp payment_state(%{total: t, paid: p}) when p >= t, do: {"paid",    "Paid"}
@@ -117,212 +106,86 @@ defmodule HospexWeb.DashboardLive do
 
   defp departure_status(s) do
     case s.status do
-      :in    -> "in"      # in-house, departing today
+      :in    -> "in"
       :paid  -> "done"
       _      -> "in"
     end
   end
 
-  # ── KPIs ──────────────────────────────────────────────────
+  # ── Activity feed (real audit events) ─────────────────────
 
-  defp kpis(stays, all_rooms, today) do
-    total_rooms = length(all_rooms)
+  defp activity_feed do
+    now = NaiveDateTime.utc_now()
 
-    in_house =
-      Enum.filter(stays, fn s ->
-        s.status not in [:hold, :cancelled] and
-          Date.compare(s.check_in, today) != :gt and
-          Date.compare(Date.add(s.check_in, s.nights), today) == :gt
-      end)
-
-    occupied = in_house |> Enum.map(& &1.room_id) |> Enum.uniq() |> length()
-    occ_pct  = if total_rooms > 0, do: round(occupied / total_rooms * 100), else: 0
-
-    revenue_today =
-      in_house
-      |> Enum.map(&div(&1.total, max(&1.nights, 1)))
-      |> Enum.sum()
-
-    adr =
-      if occupied > 0, do: div(revenue_today, occupied), else: 0
-
-    revpar =
-      if total_rooms > 0, do: div(revenue_today, total_rooms), else: 0
-
-    %{
-      occ:     %{value: occ_pct,      sub: "#{occupied}/#{total_rooms} rooms", trend: "up",   pct: "+4%", spark: spark_path(0.55, true)},
-      revenue: %{value: revenue_today, sub: "today",                            trend: "up",   pct: "+12%", spark: spark_path(0.70, true)},
-      adr:     %{value: adr,           sub: "per occupied room",                trend: "flat", pct: "0%",   spark: spark_path(0.50, false)},
-      revpar:  %{value: revpar,        sub: "rev per available room",           trend: "down", pct: "−3%",  spark: spark_path(0.40, false)}
-    }
-  end
-
-  # Tiny smoothed sine-ish path so the sparkline isn't a straight line.
-  defp spark_path(_amp, up?) do
-    pts =
-      for i <- 0..9 do
-        x = i * 8
-        base = :math.sin(i * 0.9) * 6 + 15
-        y = if up?, do: base - i * 0.6, else: base + i * 0.4
-        {x, max(2, min(28, y))}
-      end
-
-    [{x0, y0} | rest] = pts
-
-    rest
-    |> Enum.map(fn {x, y} -> "L#{Float.round(x * 1.0, 1)} #{Float.round(y, 1)}" end)
-    |> Enum.join(" ")
-    |> then(&"M#{x0} #{Float.round(y0, 1)} #{&1}")
-  end
-
-  # ── 14-day forecast ───────────────────────────────────────
-
-  defp forecast(stays, all_rooms, today) do
-    total_rooms = max(length(all_rooms), 1)
-    range = 0..13
-
-    days =
-      for d <- range do
-        date = Date.add(today, d)
-        occ =
-          stays
-          |> Enum.filter(fn s ->
-            s.status not in [:hold, :cancelled] and
-              Date.compare(s.check_in, date) != :gt and
-              Date.compare(Date.add(s.check_in, s.nights), date) == :gt
-          end)
-          |> Enum.map(& &1.room_id) |> Enum.uniq() |> length()
-
-        pct = round(occ / total_rooms * 100)
-        dow = Date.day_of_week(date)
-
-        %{
-          date: date, dom: date.day, dow: Enum.at(@dow_short, dow - 1),
-          weekend?: dow >= 6,
-          today?:  Date.compare(date, today) == :eq,
-          pct: pct,
-          level: level(pct),
-          height: max(8, pct)  # min 8% so empty days still show a stub
-        }
-      end
-
-    avg = days |> Enum.map(& &1.pct) |> avg_round()
-    peak = Enum.max_by(days, & &1.pct, fn -> %{pct: 0, date: today} end)
-
-    %{
-      days: days,
-      avg_occ: avg,
-      peak_pct: peak.pct,
-      peak_label: month_short(peak.date) <> " " <> Integer.to_string(peak.date.day)
-    }
-  end
-
-  defp level(pct) when pct >= 95, do: "full"
-  defp level(pct) when pct >= 75, do: "high"
-  defp level(pct) when pct >= 50, do: "mid"
-  defp level(_),                  do: "low"
-
-  defp avg_round([]), do: 0
-  defp avg_round(xs), do: round(Enum.sum(xs) / length(xs))
-
-  # ── Channel mix ──────────────────────────────────────────
-
-  defp channel_mix(bookings) do
-    counts =
-      bookings
-      |> Enum.reject(&(&1.status in [:hold, :cancelled]))
-      |> Enum.group_by(&channel_key/1)
-      |> Enum.map(fn {k, v} -> {k, length(v)} end)
-      |> Enum.into(%{})
-
-    total = counts |> Map.values() |> Enum.sum() |> max(1)
-
-    items =
-      [
-        {"DR", "Direct",       counts["DR"] || 0},
-        {"BC", "Booking.com",  counts["BC"] || 0},
-        {"AB", "Airbnb",       counts["AB"] || 0},
-        {"EX", "Expedia",      counts["EX"] || 0}
-      ]
-      |> Enum.map(fn {code, label, n} ->
-        pct = round(n / total * 100)
-        %{code: code, label: label, count: n, pct: pct}
-      end)
-
-    %{total: total, items: items}
-  end
-
-  defp channel_key(%{src: src}) do
-    case src do
-      "BC" -> "BC"
-      "AB" -> "AB"
-      "EX" -> "EX"
-      "booking" -> "BC"
-      "airbnb"  -> "AB"
-      "expedia" -> "EX"
-      _ -> "DR"
-    end
-  end
-
-  # ── Housekeeping ─────────────────────────────────────────
-
-  defp housekeeping(rooms) do
-    by = Enum.frequencies_by(rooms, & &1.status)
-    total = length(rooms)
-    clean = Map.get(by, :clean, 0)
-
-    %{
-      clean:   clean,
-      dirty:   Map.get(by, :dirty, 0),
-      inspect: Map.get(by, :inspect, 0),
-      ooo:     Map.get(by, :ooo, 0),
-      total:   total,
-      ready_pct: (if total > 0, do: round(clean / total * 100), else: 0)
-    }
-  end
-
-  # ── Outstanding ──────────────────────────────────────────
-
-  defp outstanding(bookings, today) do
-    bookings
-    |> Enum.reject(&(&1.status in [:hold, :cancelled]))
-    |> Enum.map(fn b -> {b, b.total - b.paid} end)
-    |> Enum.filter(fn {_b, bal} -> bal > 0 end)
-    |> Enum.sort_by(fn {b, bal} -> {Date.diff(b.check_in, today), -bal} end)
-    |> Enum.take(5)
-    |> Enum.map(fn {b, bal} ->
-      d = BookingDetails.details_for(b)
-      delta = Date.diff(b.check_in, today)
-      {due_label, due_class} =
-        cond do
-          delta < 0  -> {"Overdue #{abs(delta)}d", "overdue"}
-          delta == 0 -> {"Due today", "urgent"}
-          delta <= 3 -> {"Due in #{delta}d", "urgent"}
-          true       -> {"Due in #{delta}d", ""}
-        end
-
-      %{
-        id: b.id, ref: b.ref, name: b.lead_guest, balance: bal,
-        due_label: due_label, due_class: due_class,
-        initials: d.initials, avatar_bg: d.avatar_bg, avatar_fg: d.avatar_fg
-      }
+    Bookings.recent_events(12)
+    |> Enum.map(fn e ->
+      {icon, tone} = activity_icon(e.kind, e.summary)
+      %{icon: icon, tone: tone, text: activity_text(e), time: relative_time(e.at, now)}
     end)
   end
 
-  # ── Activity feed (synthetic) ────────────────────────────
+  defp activity_icon("payment", _),           do: {"payment",  "success"}
+  defp activity_icon("refund", _),            do: {"payment",  "warn"}
+  defp activity_icon("charge", _),            do: {"payment",  ""}
+  defp activity_icon("booking_created", _),   do: {"booking",  "info"}
+  defp activity_icon("block_created", _),     do: {"booking",  "info"}
+  defp activity_icon("room_added", _),        do: {"booking",  "info"}
+  defp activity_icon("booking_cancelled", _), do: {"cancel",   "danger"}
+  defp activity_icon("notes_updated", _),     do: {"message",  ""}
+  defp activity_icon("status_changed", summary), do: status_icon(summary)
+  defp activity_icon(_, _),                   do: {"booking",  ""}
 
-  defp activity_feed(_today) do
+  defp status_icon(summary) do
+    s = String.downcase(summary || "")
+
+    cond do
+      String.contains?(s, "out") or String.contains?(s, "done") -> {"checkout", "success"}
+      String.contains?(s, "cancel") -> {"cancel", "danger"}
+      String.contains?(s, "in") -> {"checkin", "success"}
+      true -> {"booking", ""}
+    end
+  end
+
+  # Summary is plain text; the booking ref (bolded) gives it context.
+  # Everything is HTML-escaped — act-text renders raw.
+  defp activity_text(%{booking: %{ref: ref}} = e) when is_binary(ref) and ref != "",
+    do: "<b>#{esc(ref)}</b> · #{esc(e.summary)}"
+
+  defp activity_text(e), do: esc(e.summary)
+
+  defp esc(nil), do: ""
+  defp esc(s), do: s |> to_string() |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
+
+  defp relative_time(%NaiveDateTime{} = at, now) do
+    secs = NaiveDateTime.diff(now, at)
+
+    cond do
+      secs < 60     -> "just now"
+      secs < 3_600  -> "#{div(secs, 60)} min ago"
+      secs < 86_400 -> "#{div(secs, 3_600)} hr ago"
+      true          -> "#{div(secs, 86_400)}d ago"
+    end
+  end
+
+  defp relative_time(_, _), do: ""
+
+  # ── Tasks (dummy data for now) ────────────────────────────
+
+  defp tasks do
     [
-      %{icon: "checkin",  tone: "success", text: ~s|<b>Anna Müller</b> checked in to <b>304</b>|,                                time: "12 min ago"},
-      %{icon: "payment",  tone: "success", text: ~s|Payment of <b>€450</b> received from <b>Noor Hassan</b>|,                    time: "38 min ago"},
-      %{icon: "booking",  tone: "info",    text: ~s|New booking <b>BK-1042</b> from Booking.com · 3 nights|,                     time: "1 hr ago"},
-      %{icon: "warn",     tone: "warn",    text: ~s|Late check-out request from <b>Mateo Diaz</b> · 207|,                        time: "1 hr ago"},
-      %{icon: "cancel",   tone: "danger",  text: ~s|<b>Henrik Voss</b> cancelled · BK-1031 (€520 refund pending)|,                time: "2 hr ago"},
-      %{icon: "housekeep",tone: "info",    text: ~s|Housekeeping marked rooms <b>202, 204, 305</b> as clean|,                    time: "3 hr ago"},
-      %{icon: "message",  tone: "",        text: ~s|Message from <b>Sophie Laurent</b>: "Could we get extra towels?"|,           time: "4 hr ago"},
-      %{icon: "checkout", tone: "success", text: ~s|<b>James O'Connor</b> checked out · 401|,                                    time: "5 hr ago"}
+      %{done: false, priority: "high", text: "Confirm late check-out for room 207", due: "Today"},
+      %{done: false, priority: "high", text: "Process €520 refund for cancelled BK-1031", due: "Today"},
+      %{done: false, priority: "med",  text: "Restock minibar · rooms 301, 305", due: "Today"},
+      %{done: false, priority: "med",  text: "Prep welcome amenities for VIP arrival", due: "Tomorrow"},
+      %{done: true,  priority: "low",  text: "Reply to Booking.com guest review", due: "Yesterday"},
+      %{done: false, priority: "low",  text: "Schedule deep clean for room 401", due: "Fri"}
     ]
   end
+
+  defp task_pri_label("high"), do: "High"
+  defp task_pri_label("med"),  do: "Medium"
+  defp task_pri_label("low"),  do: "Low"
+  defp task_pri_label(p),      do: String.capitalize(to_string(p))
 
   # ── Helpers (template-callable) ──────────────────────────
 
@@ -339,31 +202,7 @@ defmodule HospexWeb.DashboardLive do
   defp full_dow("Sat"), do: "Saturday"
   defp full_dow("Sun"), do: "Sunday"
 
-  defp month_short(date) do
-    @months |> Enum.at(date.month - 1) |> String.slice(0, 3)
-  end
-
-  def channel_initials(%{code: code}), do: code
-
-  def chan_color("DR"), do: "var(--accent)"
-  def chan_color("BC"), do: "#003580"
-  def chan_color("AB"), do: "#ff5a5f"
-  def chan_color("EX"), do: "#fdd535"
-  def chan_color(_),    do: "var(--ink-4)"
-
-  def fmt_money(n) when is_integer(n), do: format_money(n)
-  def fmt_money(_), do: "€0"
-
-  def format_money(n) do
-    "€" <> Integer.to_string(n)
-  end
-
-  def kpi_trend_arrow(:up),   do: "↗"
-  def kpi_trend_arrow(:down), do: "↘"
-  def kpi_trend_arrow(_),     do: "→"
-
   defp room_num(room_id) do
-    # Strip the "r" prefix used by mock data ids ("r101" → "101")
     case room_id do
       "r" <> rest -> rest
       other       -> other
@@ -379,7 +218,6 @@ defmodule HospexWeb.DashboardLive do
       "booking"   -> ~s(<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="3.5" width="11" height="10" rx="1.5"/><path d="M2.5 6.5h11M8 9v3"/></svg>)
       "warn"      -> ~s(<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2 14 13H2Z"/><path d="M8 6.5v3"/><circle cx="8" cy="11" r=".5" fill="currentColor" stroke="none"/></svg>)
       "cancel"    -> ~s(<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="5.5"/><path d="m5.5 5.5 5 5M10.5 5.5l-5 5"/></svg>)
-      "housekeep" -> ~s(<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13.5h10M5 13.5V7l3-3 3 3v6.5"/></svg>)
       "message"   -> ~s(<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3.5h10v7H6L3 13Z"/></svg>)
       _           -> ~s(<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="5.5"/></svg>)
     end

@@ -46,130 +46,14 @@
       <span class="pip"></span>
       <span><b><%= length(@departures) %></b> departures</span>
       <span class="pip"></span>
-      <span><b><%= @kpis.occ.value %>%</b> occupancy</span>
-      <span class="pip"></span>
-      <span><b><%= format_money(@kpis.revenue.value) %></b> today</span>
+      <span><b><%= Enum.count(@tasks, &(not &1.done)) %></b> open tasks</span>
     </div>
   </div>
 
   <%!-- ── Dashboard body ──────────────────────────────────────── --%>
   <div class="dashboard">
 
-    <%!-- KPI row --%>
-    <div class="kpi-row">
-      <%= for {key, k, label, suffix} <- [
-            {:occ,     @kpis.occ,     "Occupancy",       "%"},
-            {:revenue, @kpis.revenue, "Revenue today",   nil},
-            {:adr,     @kpis.adr,     "ADR",             nil},
-            {:revpar,  @kpis.revpar,  "RevPAR",          nil}
-          ] do %>
-        <div class="kpi">
-          <div class="kpi-label"><%= label %></div>
-          <div class="kpi-value">
-            <%= if key in [:revenue, :adr, :revpar] do %>
-              <span class="ccy">€</span><%= k.value %>
-            <% else %>
-              <%= k.value %><%= if suffix, do: Phoenix.HTML.raw(~s(<span class="suffix">#{suffix}</span>)) %>
-            <% end %>
-          </div>
-          <div class="kpi-sub">
-            <span class={"trend #{k.trend}"}>
-              <%= case k.trend do %>
-                <% "up"   -> %><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 4-4 3 3 3-5"/><path d="M9 5h4v4"/></svg>
-                <% "down" -> %><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m3 5 4 4 3-3 3 5"/><path d="M9 11h4V7"/></svg>
-                <% _      -> %><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10"/></svg>
-              <% end %>
-              <%= k.pct %>
-            </span>
-            <span>vs last week · <%= k.sub %></span>
-          </div>
-          <svg class={"kpi-spark #{k.trend}"} viewBox="0 0 80 30" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-            <path d={k.spark} />
-          </svg>
-        </div>
-      <% end %>
-    </div>
-
-    <%!-- Forecast + Channel mix --%>
-    <div class="grid-2">
-      <%!-- 14-day forecast --%>
-      <div class="card">
-        <div class="card-head">
-          <div class="card-title">14-day occupancy forecast</div>
-          <span class="card-count"><%= @forecast.avg_occ %>% avg</span>
-          <button class="card-action">
-            View report
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5 10.5 8 6 12.5"/></svg>
-          </button>
-        </div>
-        <div class="forecast">
-          <div class="fc-grid">
-            <%= for d <- @forecast.days do %>
-              <div class="fc-bar" data-level={d.level} data-today={if d.today?, do: "1", else: "0"}>
-                <span class="pct"><%= d.pct %></span>
-                <div class="fc-bar-track" style={"height:#{d.height}%"}></div>
-              </div>
-            <% end %>
-          </div>
-          <div class="fc-labels">
-            <%= for d <- @forecast.days do %>
-              <div class="fc-label"
-                   data-today={if d.today?, do: "1", else: "0"}
-                   data-weekend={if d.weekend?, do: "1", else: "0"}>
-                <div class="dow"><%= d.dow %></div>
-                <div class="dom"><%= d.dom %></div>
-              </div>
-            <% end %>
-          </div>
-        </div>
-        <div class="fc-summary">
-          <div class="stat">
-            <span class="l">Peak</span>
-            <span class="v"><%= @forecast.peak_pct %>% · <%= @forecast.peak_label %></span>
-          </div>
-          <div class="stat">
-            <span class="l">Avg</span>
-            <span class="v"><%= @forecast.avg_occ %>%</span>
-          </div>
-          <div class="legend">
-            <div class="legend-item"><span class="legend-dot" style="background: oklch(86% 0.02 250)"></span>&lt;50%</div>
-            <div class="legend-item"><span class="legend-dot" style="background: oklch(58% 0.10 220)"></span>50–75%</div>
-            <div class="legend-item"><span class="legend-dot" style="background: oklch(54% 0.14 264)"></span>75–95%</div>
-            <div class="legend-item"><span class="legend-dot" style="background: var(--unpaid-bar)"></span>Full</div>
-          </div>
-        </div>
-      </div>
-
-      <%!-- Channel mix --%>
-      <div class="card">
-        <div class="card-head">
-          <div class="card-title">Channel mix</div>
-          <span class="card-count">last 30d</span>
-        </div>
-        <div class="chan-body">
-          <div class="chan-total">
-            <b><%= @channel_mix.total %></b>
-            <span>bookings</span>
-          </div>
-          <div class="chan-bar">
-            <%= for item <- @channel_mix.items, item.pct > 0 do %>
-              <div style={"width:#{item.pct}%;background:#{chan_color(item.code)}"} title={"#{item.label}: #{item.pct}%"}></div>
-            <% end %>
-          </div>
-          <div class="chan-legend">
-            <%= for item <- @channel_mix.items do %>
-              <div class="chan-item">
-                <span class="chan-swatch" style={"background:#{chan_color(item.code)}"}></span>
-                <span class="chan-name"><%= item.label %></span>
-                <span class="chan-pct"><%= item.pct %>%</span>
-              </div>
-            <% end %>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <%!-- Arrivals / Departures / Housekeeping --%>
+    <%!-- Arrivals / Departures / Tasks --%>
     <div class="grid-3">
 
       <%!-- Arrivals --%>
@@ -251,53 +135,46 @@
         </div>
       </div>
 
-      <%!-- Housekeeping --%>
+      <%!-- Tasks --%>
       <div class="card">
         <div class="card-head">
-          <div class="card-title">Housekeeping</div>
-          <span class="card-count"><%= @housekeeping.total %> rooms</span>
+          <div class="card-title">Tasks</div>
+          <span class="card-count"><%= Enum.count(@tasks, &(not &1.done)) %> open</span>
         </div>
-        <div class="hk-body">
-          <div class="hk-grid">
-            <div class="hk-stat" data-s="clean">
-              <div class="num"><span class="dot"></span><%= @housekeeping.clean %></div>
-              <div class="lbl">Clean</div>
-            </div>
-            <div class="hk-stat" data-s="dirty">
-              <div class="num"><span class="dot"></span><%= @housekeeping.dirty %></div>
-              <div class="lbl">Dirty</div>
-            </div>
-            <div class="hk-stat" data-s="inspect">
-              <div class="num"><span class="dot"></span><%= @housekeeping.inspect %></div>
-              <div class="lbl">Inspect</div>
-            </div>
-            <div class="hk-stat" data-s="ooo">
-              <div class="num"><span class="dot"></span><%= @housekeeping.ooo %></div>
-              <div class="lbl">Out of order</div>
-            </div>
-          </div>
-          <div class="hk-progress">
-            <div style="display:flex;justify-content:space-between;align-items:center">
-              <span>Ready for arrivals</span>
-              <span style="color: var(--ink); font-weight:600; font-family:'Geist Mono',monospace"><%= @housekeeping.ready_pct %>%</span>
-            </div>
-            <div class="bar"><div style={"width:#{@housekeeping.ready_pct}%"}></div></div>
+        <div class="card-body">
+          <div class="list">
+            <%= if @tasks == [] do %>
+              <div class="empty">Nothing on the list</div>
+            <% else %>
+              <%= for t <- @tasks do %>
+                <div class="task-row" data-done={to_string(t.done)}>
+                  <span class="task-check"><%= if t.done do %><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3.5 8.5 3 3 6-7"/></svg><% end %></span>
+                  <div class="row-body">
+                    <div class="row-title"><%= t.text %></div>
+                    <div class="row-sub">
+                      <span class={"task-pri #{t.priority}"}><span class="dot"></span><%= task_pri_label(t.priority) %></span>
+                    </div>
+                  </div>
+                  <div class="task-due"><%= t.due %></div>
+                </div>
+              <% end %>
+            <% end %>
           </div>
         </div>
       </div>
     </div>
 
-    <%!-- Outstanding + Activity --%>
-    <div class="grid-2">
-
-      <%!-- Activity feed --%>
-      <div class="card">
-        <div class="card-head">
-          <div class="card-title">Activity</div>
-          <span class="card-count"><%= length(@activity) %></span>
-        </div>
-        <div class="card-body">
-          <div class="activity">
+    <%!-- Activity feed --%>
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">Activity</div>
+        <span class="card-count"><%= length(@activity) %></span>
+      </div>
+      <div class="card-body">
+        <div class="activity">
+          <%= if @activity == [] do %>
+            <div class="empty">No recent activity</div>
+          <% else %>
             <%= for ev <- @activity do %>
               <div class="act-row">
                 <div class={"act-icon #{ev.tone}"}>
@@ -309,37 +186,7 @@
                 </div>
               </div>
             <% end %>
-          </div>
-        </div>
-      </div>
-
-      <%!-- Outstanding balances --%>
-      <div class="card">
-        <div class="card-head">
-          <div class="card-title">Outstanding</div>
-          <span class="card-count"><%= length(@outstanding) %></span>
-        </div>
-        <div class="card-body">
-          <div class="list">
-            <%= if @outstanding == [] do %>
-              <div class="empty">All balances settled</div>
-            <% else %>
-              <%= for b <- @outstanding do %>
-                <div class="list-row">
-                  <div class="avatar" style={"background:#{b.avatar_bg};color:#{b.avatar_fg}"}><%= b.initials %></div>
-                  <div class="row-body">
-                    <div class="row-title"><%= b.name %></div>
-                    <div class="row-sub">
-                      <span class="room">#<%= b.ref %></span>
-                      <span class="sep"></span>
-                      <span class={"ot-due #{b.due_class}"}><%= b.due_label %></span>
-                    </div>
-                  </div>
-                  <div class="ot-amount">€<%= b.balance %></div>
-                </div>
-              <% end %>
-            <% end %>
-          </div>
+          <% end %>
         </div>
       </div>
     </div>
