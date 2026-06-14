@@ -33,6 +33,7 @@ defmodule Hospex.Bookings.Booking do
     field :block_by,        :string
 
     field :notes,           :string
+    field :checkin_details, :string
 
     has_many :stays, Stay, on_replace: :delete
     has_many :events, BookingEvent, on_replace: :delete
@@ -44,7 +45,7 @@ defmodule Hospex.Bookings.Booking do
   @castable ~w(ref lead_guest src status total paid check_in check_out
                ota_ref payment_collect email phone country requests
                rate_night cleaning_fee tax_rate
-               block_reason block_release block_by notes)a
+               block_reason block_release block_by notes checkin_details)a
 
   def changeset(booking, attrs) do
     booking

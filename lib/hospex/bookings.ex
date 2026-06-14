@@ -385,15 +385,29 @@ defmodule Hospex.Bookings do
   end
 
   @doc """
-  Logs a check-in audit event capturing the custom answers collected by the
-  wizard. Records history without mutating booking data (identity transform),
-  so the details show up in the drawer's History tab.
+  Records a check-in: stores the readable `details` text on the booking (so it
+  can be read later in the drawer) and logs a `:checkin` audit event. `summary`
+  is the one-line event text (the custom answers, or a generic fallback).
+  Multiple check-ins on one booking append, newest last.
   """
-  def record_checkin(stay_id, summary) when is_binary(summary) do
+  def record_checkin(stay_id, summary, details) when is_binary(summary) and is_binary(details) do
     with {:ok, booking_id} <- booking_id_for_stay(stay_id) do
       booking_id
-      |> mutate_and_log(& &1, :checkin, summary: summary)
+      |> mutate_and_log(
+        fn b -> %{b | checkin_details: append_checkin(Map.get(b, :checkin_details), details)} end,
+        :checkin,
+        summary: summary
+      )
       |> ok_and_broadcast(booking_id)
+    end
+  end
+
+  defp append_checkin(existing, details) do
+    block = "— Checked in #{Calendar.strftime(Date.utc_today(), "%b %-d, %Y")}\n#{details}"
+
+    case existing do
+      blank when blank in [nil, ""] -> block
+      prev -> prev <> "\n\n" <> block
     end
   end
 

@@ -212,7 +212,8 @@ defmodule Hospex.Bookings.Store do
       block_by:        b.block_by,
       events:          events_list(b),
       transactions:    transactions_list(b),
-      notes:           b.notes
+      notes:           b.notes,
+      checkin_details: b.checkin_details
     }
   end
 
@@ -323,6 +324,7 @@ defmodule Hospex.Bookings.Store do
       block_release:   Map.get(m, :block_release),
       block_by:        Map.get(m, :block_by),
       notes:           Map.get(m, :notes),
+      checkin_details: Map.get(m, :checkin_details),
       stays:           Enum.map(Map.get(m, :stays, []), &stay_attrs/1)
     }
   end
