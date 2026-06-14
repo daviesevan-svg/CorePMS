@@ -92,11 +92,22 @@ defmodule Hospex.Channex.Channels do
 
   @doc """
   Disconnect a channel (DELETE /channels/:id). Channex rejects deleting
-  an active channel, so an active one is deactivated first.
+  an active channel, so an active one is deactivated first — and the
+  delete is skipped (returning the error) if that deactivation fails.
   """
   def delete(uuid, active? \\ false) do
-    if active?, do: deactivate(uuid)
-    Client.delete("/channels/#{uuid}")
+    with :ok <- maybe_deactivate(uuid, active?) do
+      Client.delete("/channels/#{uuid}")
+    end
+  end
+
+  defp maybe_deactivate(_uuid, false), do: :ok
+
+  defp maybe_deactivate(uuid, true) do
+    case deactivate(uuid) do
+      {:ok, _} -> :ok
+      error -> error
+    end
   end
 
   @doc """

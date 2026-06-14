@@ -116,7 +116,9 @@ defmodule HospexWeb.Settings.ChannelsConnectLive do
        opts = Keyword.put(opts, :group_id, Channels.resolve_group_id())
 
        with {:ok, attrs} <- Channels.build_create_attrs(rows, opts) do
-         Channels.update(id, attrs)
+         # Editing the mapping must not change the channel's live state —
+         # drop is_active (build_create_attrs sets it false for creates).
+         Channels.update(id, Map.delete(attrs, "is_active"))
        end
      end)}
   end

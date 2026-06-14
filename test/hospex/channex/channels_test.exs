@@ -191,5 +191,23 @@ defmodule Hospex.Channex.ChannelsTest do
       assert {:ok, %{"id" => "ch-1"}} = Channels.create(%{"channel" => "BookingCom", "title" => "Opera"})
       assert_received {:req, "POST", "/api/v1/channels", %{"channel" => %{"channel" => "BookingCom"}}}
     end
+
+    test "delete deactivates an active channel before removing it" do
+      test_pid = self()
+
+      Req.Test.stub(Hospex.ChannexStub, fn conn ->
+        send(test_pid, {:req, conn.method, conn.request_path})
+        Req.Test.json(conn, %{"meta" => %{"message" => "Success"}})
+      end)
+
+      assert {:ok, _} = Channels.delete("ch-1", true)
+      assert_received {:req, "POST", "/api/v1/channels/ch-1/deactivate"}
+      assert_received {:req, "DELETE", "/api/v1/channels/ch-1"}
+
+      # An inactive channel is deleted directly (no deactivate).
+      assert {:ok, _} = Channels.delete("ch-2", false)
+      assert_received {:req, "DELETE", "/api/v1/channels/ch-2"}
+      refute_received {:req, "POST", "/api/v1/channels/ch-2/deactivate"}
+    end
   end
 end
