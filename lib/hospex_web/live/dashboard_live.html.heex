@@ -169,6 +169,13 @@
                       <div class="row-title"><%= t.title %></div>
                       <div class="row-sub">
                         <span class={"task-pri #{t.priority}"}><span class="dot"></span><%= task_pri_label(t.priority) %></span>
+                        <%= if label = linked_booking_label(@all_bookings, t.booking_id) do %>
+                          <span class="sep"></span>
+                          <span class="task-booking-chip" title={label}>
+                            <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 9.5 9.5 6.5M7 4.5l.8-.8a2.5 2.5 0 0 1 3.5 3.5l-.8.8M9 11.5l-.8.8a2.5 2.5 0 0 1-3.5-3.5l.8-.8"/></svg>
+                            <%= hd(String.split(label, " · ")) %>
+                          </span>
+                        <% end %>
                       </div>
                     </div>
                     <div class="task-due"><%= due_label(t.due_on) %></div>
@@ -254,6 +261,17 @@
               <div class="task-dr-desc"><%= if t.description && t.description != "", do: t.description, else: "No description" %></div>
             </div>
 
+            <%= if linked_booking_label(@all_bookings, t.booking_id) do %>
+              <div class="task-dr-section">
+                <div class="task-dr-label">Linked booking</div>
+                <button class="task-dr-link" phx-click="open_linked_booking" phx-value-booking-id={t.booking_id}>
+                  <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 9.5 9.5 6.5M7 4.5l.8-.8a2.5 2.5 0 0 1 3.5 3.5l-.8.8M9 11.5l-.8.8a2.5 2.5 0 0 1-3.5-3.5l.8-.8"/></svg>
+                  <span><%= linked_booking_label(@all_bookings, t.booking_id) %></span>
+                  <svg class="task-dr-link-go" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5 10.5 8 6 12.5"/></svg>
+                </button>
+              </div>
+            <% end %>
+
             <%= if t.done do %>
               <div class="task-dr-section">
                 <div class="task-dr-label">Completion note</div>
@@ -323,6 +341,16 @@
           <label class="task-field">
             <span class="task-field-label">Due date</span>
             <input type="date" name="due_on" class="task-input" value={form.due_on} />
+          </label>
+
+          <label class="task-field">
+            <span class="task-field-label">Linked booking <span class="task-field-opt">optional</span></span>
+            <select name="booking_id" class="task-input">
+              <option value="" selected={form[:booking_id] in [nil, ""]}>— None —</option>
+              <%= for b <- @all_bookings do %>
+                <option value={b.id} selected={to_string(form[:booking_id]) == to_string(b.id)}><%= b.ref %> · <%= b.lead_guest %></option>
+              <% end %>
+            </select>
           </label>
 
           <label class="task-field">

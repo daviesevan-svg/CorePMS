@@ -287,6 +287,22 @@ defmodule HospexWeb.DashboardLive do
     {:noreply, assign(socket, task_drawer: nil, task_menu_open: false)}
   end
 
+  # Jump from a task's linked booking to the booking drawer (swap drawers).
+  def handle_event("open_linked_booking", %{"booking-id" => bid_str}, socket) do
+    booking_id = to_int(bid_str)
+
+    case Enum.find(socket.assigns.all_stays, &(&1.booking_id == booking_id)) do
+      nil ->
+        {:noreply, socket}
+
+      stay ->
+        {:noreply,
+         socket
+         |> assign(:task_drawer, nil)
+         |> do_select_booking(stay.id)}
+    end
+  end
+
   def handle_event("new_task", _, socket) do
     {:noreply, assign(socket,
       task_drawer: %{mode: :new, id: nil, form: blank_task_form(), error: nil},
@@ -301,7 +317,8 @@ defmodule HospexWeb.DashboardLive do
           title:       t.title || "",
           description: t.description || "",
           priority:    t.priority,
-          due_on:      (if t.due_on, do: Date.to_iso8601(t.due_on), else: "")
+          due_on:      (if t.due_on, do: Date.to_iso8601(t.due_on), else: ""),
+          booking_id:  (if t.booking_id, do: Integer.to_string(t.booking_id), else: "")
         }
 
         {:noreply, assign(socket, :task_drawer, %{mode: :edit, id: id, form: form, error: nil})}
@@ -317,6 +334,7 @@ defmodule HospexWeb.DashboardLive do
       |> maybe_put_str(params, "description")
       |> maybe_put_str(params, "priority")
       |> maybe_put_str(params, "due_on")
+      |> maybe_put_str(params, "booking_id")
 
     {:noreply, assign(socket, :task_drawer, %{drawer | form: form})}
   end
@@ -329,7 +347,8 @@ defmodule HospexWeb.DashboardLive do
       title:       String.trim(form.title || ""),
       description: nilify(form.description),
       priority:    form.priority,
-      due_on:      parse_date(form.due_on)
+      due_on:      parse_date(form.due_on),
+      booking_id:  parse_booking_id(form[:booking_id])
     }
 
     result =
@@ -604,7 +623,26 @@ defmodule HospexWeb.DashboardLive do
   defp drawer_task(_), do: nil
 
   defp blank_task_form do
-    %{title: "", description: "", priority: "med", due_on: ""}
+    %{title: "", description: "", priority: "med", due_on: "", booking_id: ""}
+  end
+
+  # A short "REF · Guest" label for a linked booking, or nil if unlinked/missing.
+  defp linked_booking_label(_bookings, nil), do: nil
+
+  defp linked_booking_label(bookings, booking_id) do
+    case Enum.find(bookings, &(&1.id == booking_id)) do
+      nil -> nil
+      b -> "#{b.ref} · #{b.lead_guest}"
+    end
+  end
+
+  defp parse_booking_id(nil), do: nil
+  defp parse_booking_id(""), do: nil
+  defp parse_booking_id(s) when is_binary(s) do
+    case Integer.parse(s) do
+      {n, _} -> n
+      :error -> nil
+    end
   end
 
   defp task_pri_label("high"), do: "High"

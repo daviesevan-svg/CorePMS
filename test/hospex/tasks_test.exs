@@ -26,6 +26,14 @@ defmodule Hospex.TasksTest do
       assert {:error, cs} = Tasks.create_task(%{title: "x", priority: "urgent"})
       assert %{priority: ["is invalid"]} = errors_on(cs)
     end
+
+    test "can be linked to a booking and unlinked" do
+      assert {:ok, %Task{} = t} = Tasks.create_task(%{title: "Linked", priority: "med", booking_id: nil})
+      assert is_nil(t.booking_id)
+
+      assert {:ok, updated} = Tasks.update_task(t, %{booking_id: nil})
+      assert is_nil(updated.booking_id)
+    end
   end
 
   describe "complete_task/2" do
