@@ -1,6 +1,8 @@
 defmodule HospexWeb.CalendarLive do
   use HospexWeb, :live_view
 
+  import HospexWeb.BookingDrawerComponents
+
   alias Hospex.Content.{BookingDetails, Pricing}
   alias Hospex.Bookings
 
@@ -1638,35 +1640,6 @@ defmodule HospexWeb.CalendarLive do
 
   # Booking (non-hold) standalone notes save — still its own form.
 
-  # Resolve the effective release-on flag for the form: staged value if
-  # the user toggled it, otherwise derived from the booking's current
-  # state (is block_release nil or not).
-  def block_edit_release_on?(stage, booking) do
-    case Map.fetch(stage, :auto_release) do
-      {:ok, v} -> v
-      :error   -> not is_nil(Map.get(booking, :block_release))
-    end
-  end
-
-  # Pick the staged notes value, falling back to the booking's current.
-  def block_edit_notes(stage, booking) do
-    Map.get(stage, :notes, Map.get(booking, :notes) || "")
-  end
-
-  # Pick the staged release ISO string, falling back to the booking's.
-  def block_edit_release_iso(stage, booking) do
-    case Map.fetch(stage, :release_at) do
-      {:ok, v} ->
-        v
-
-      :error ->
-        case Map.get(booking, :block_release) do
-          %NaiveDateTime{} = dt -> NaiveDateTime.to_iso8601(dt) |> String.slice(0, 16)
-          _ -> ""
-        end
-    end
-  end
-
   defp parse_block_release(false, _stage), do: nil
   defp parse_block_release(true, stage) do
     iso = Map.get(stage, :release_at, "")
@@ -1679,26 +1652,6 @@ defmodule HospexWeb.CalendarLive do
 
   # ── Delete block (hard remove from store) ────────────────────
 
-
-  # Friendly countdown like "2 days · 3h" or "5h · 20m" or "in the past".
-  def block_release_countdown(nil, _now), do: nil
-  def block_release_countdown(%NaiveDateTime{} = at, %NaiveDateTime{} = now) do
-    secs = NaiveDateTime.diff(at, now, :second)
-
-    cond do
-      secs <= 0 -> "due now"
-      secs < 60 * 60 ->
-        "#{div(secs, 60)} min"
-      secs < 24 * 3600 ->
-        h = div(secs, 3600)
-        m = div(rem(secs, 3600), 60)
-        "#{h}h #{m}m"
-      true ->
-        d = div(secs, 24 * 3600)
-        h = div(rem(secs, 24 * 3600), 3600)
-        "#{d} day#{if d != 1, do: "s"} · #{h}h"
-    end
-  end
 
   # ── Pill drag (resize + move) ────────────────────────────────
   #
@@ -2225,29 +2178,6 @@ defmodule HospexWeb.CalendarLive do
         "#{am} #{anchor.day} — #{last.day}, #{anchor.year}"
     end
   end
-
-  def format_money(amount) do
-    "€#{:erlang.integer_to_list(amount) |> List.to_string()}"
-  end
-
-  def balance_class(0, _paid),                  do: "green"
-  def balance_class(_balance, paid) when paid > 0, do: "amber"
-  def balance_class(_balance, _paid),           do: "red"
-
-  def paid_pct(%{total: 0}), do: 0
-  def paid_pct(%{total: t, paid: p}), do: round(p / t * 100)
-
-  def party_chip_text(1, :adults), do: "1 adult"
-  def party_chip_text(n, :adults), do: "#{n} adults"
-  def party_chip_text(1, :kids),   do: "1 child"
-  def party_chip_text(n, :kids),   do: "#{n} children"
-
-  def fmt_full_date(date), do: Calendar.strftime(date, "%b %-d, %Y")
-  def fmt_night_label(date), do: Calendar.strftime(date, "%a · %b %-d")
-
-  def event_dot_class(:accent),  do: "dr-event-dot accent"
-  def event_dot_class(:success), do: "dr-event-dot success"
-  def event_dot_class(_),        do: "dr-event-dot"
 
   # Returns a flat list of {%Date{}, :curr | :off} for the date-picker grid.
   # Always 42 cells (6 rows × 7 cols), Sunday-first.

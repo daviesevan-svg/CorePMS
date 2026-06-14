@@ -71,25 +71,33 @@
               <div class="empty">No arrivals today</div>
             <% else %>
               <%= for a <- @arrivals do %>
-                <div class="list-row">
-                  <div class="avatar" style={"background:#{a.avatar_bg};color:#{a.avatar_fg}"}><%= a.initials %></div>
-                  <div class="row-body">
-                    <div class="row-title"><%= a.name %></div>
-                    <div class="row-sub">
-                      <span class="room">#<%= a.room %></span>
-                      <span class="sep"></span>
-                      <span><%= a.nights %>n</span>
-                      <span class="sep"></span>
-                      <span class="pax"><%= a.adults + a.kids %> guest<%= if a.adults + a.kids != 1, do: "s" %></span>
+                <div class="list-row arrival-row more-wrap" phx-click-away="close_arrival_menu">
+                  <button class="arrival-rowbtn" phx-click="toggle_arrival_menu" phx-value-id={a.id}>
+                    <div class="avatar" style={"background:#{a.avatar_bg};color:#{a.avatar_fg}"}><%= a.initials %></div>
+                    <div class="row-body">
+                      <div class="row-title"><%= a.name %></div>
+                      <div class="row-sub">
+                        <span class="room">#<%= a.room %></span>
+                        <span class="sep"></span>
+                        <span><%= a.nights %>n</span>
+                        <span class="sep"></span>
+                        <span class="pax"><%= a.adults + a.kids %> guest<%= if a.adults + a.kids != 1, do: "s" %></span>
+                      </div>
                     </div>
-                  </div>
-                  <div class="row-meta">
-                    <span class="pay-pill" data-s={a.pay} title={"€#{a.balance} balance"}>
-                      <span class="dot"></span>
-                      <%= a.pay_label %>
-                    </span>
-                    <div class="row-eta"><%= a.eta %></div>
-                  </div>
+                    <div class="row-meta">
+                      <span class="pay-pill" data-s={a.pay} title={"€#{a.balance} balance"}>
+                        <span class="dot"></span>
+                        <%= a.pay_label %>
+                      </span>
+                      <div class="row-eta"><%= a.eta %></div>
+                    </div>
+                  </button>
+                  <%= if @arrival_menu == a.id do %>
+                    <div class="more-menu arrival-menu" role="menu">
+                      <button class="more-item" phx-click="select_booking" phx-value-id={a.id}>Open booking</button>
+                      <button class="more-item" phx-click="start_checkin" phx-value-id={a.id}>Check in</button>
+                    </div>
+                  <% end %>
                 </div>
               <% end %>
             <% end %>
@@ -191,4 +199,9 @@
       </div>
     </div>
   </div>
+
+  <%!-- ── Shared drawer / wizard / transaction modal ──────────── --%>
+  <.booking_drawer selected_booking={@selected_booking} drawer_tab={@drawer_tab} expanded_stays={@expanded_stays} rate_breakdown_open={@rate_breakdown_open} notes_draft={@notes_draft} block_edit={@block_edit} more_menu_open={@more_menu_open} focused_stay_id={@focused_stay_id} editable={false} back_label="Dashboard" />
+  <.checkin_wizard wizard={@checkin_wizard} />
+  <.txn_modal txn_form={@txn_form} />
 </div>
