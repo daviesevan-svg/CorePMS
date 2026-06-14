@@ -78,6 +78,31 @@ else
   IO.puts("Seeded #{count} bookings from MockCalendarData.")
 end
 
+# ── Sample tasks ────────────────────────────────────────────────
+# Idempotent: only seeds when the tasks table is empty. Mirrors the old
+# dummy set, with due dates relative to today.
+if Repo.aggregate(Hospex.Tasks.Task, :count, :id) > 0 do
+  IO.puts("Tasks table is non-empty — skipping task seed.")
+else
+  today = Date.utc_today()
+
+  sample_tasks = [
+    %{title: "Confirm late check-out for room 207",         priority: "high", due_on: today},
+    %{title: "Process €520 refund for cancelled BK-1031",   priority: "high", due_on: today},
+    %{title: "Restock minibar · rooms 301, 305",            priority: "med",  due_on: today},
+    %{title: "Prep welcome amenities for VIP arrival",      priority: "med",  due_on: Date.add(today, 1)},
+    %{title: "Reply to Booking.com guest review",           priority: "low",  due_on: Date.add(today, -1),
+      done: true, completion_note: "Thanked the guest and addressed the noise comment."},
+    %{title: "Schedule deep clean for room 401",            priority: "low",  due_on: Date.add(today, 4)}
+  ]
+
+  Enum.each(sample_tasks, fn attrs ->
+    {:ok, _} = Hospex.Tasks.create_task(attrs)
+  end)
+
+  IO.puts("Seeded #{length(sample_tasks)} sample tasks.")
+end
+
 # ── Staff user for magic-link login ─────────────────────────────
 # In dev any address works — mail lands in the local mailbox at
 # /dev/mailbox. For real deployments set ADMIN_EMAIL.

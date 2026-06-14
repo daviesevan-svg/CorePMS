@@ -1,0 +1,103 @@
+defmodule Hospex.TasksTest do
+  use ExUnit.Case, async: true
+
+  alias Hospex.Tasks
+  alias Hospex.Tasks.Task
+  alias Hospex.Repo
+
+  setup do
+    :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
+  end
+
+  describe "create_task/1" do
+    test "creates with valid attrs" do
+      assert {:ok, %Task{} = t} = Tasks.create_task(%{title: "Do a thing", priority: "high"})
+      assert t.title == "Do a thing"
+      assert t.priority == "high"
+      refute t.done
+    end
+
+    test "requires title" do
+      assert {:error, cs} = Tasks.create_task(%{priority: "med"})
+      assert %{title: ["can't be blank"]} = errors_on(cs)
+    end
+
+    test "rejects an invalid priority" do
+      assert {:error, cs} = Tasks.create_task(%{title: "x", priority: "urgent"})
+      assert %{priority: ["is invalid"]} = errors_on(cs)
+    end
+  end
+
+  describe "complete_task/2" do
+    test "marks done with an optional note and a timestamp" do
+      {:ok, t} = Tasks.create_task(%{title: "Note me", priority: "med"})
+
+      assert {:ok, done} = Tasks.complete_task(t.id, "wrapped it up")
+      assert done.done
+      assert done.completion_note == "wrapped it up"
+      assert %NaiveDateTime{} = done.completed_at
+    end
+
+    test "allows a nil note" do
+      {:ok, t} = Tasks.create_task(%{title: "No note", priority: "low"})
+      assert {:ok, done} = Tasks.complete_task(t.id, nil)
+      assert done.done
+      assert is_nil(done.completion_note)
+    end
+  end
+
+  describe "reopen_task/1" do
+    test "clears done, note and timestamp" do
+      {:ok, t} = Tasks.create_task(%{title: "Reopen me", priority: "med"})
+      {:ok, _} = Tasks.complete_task(t.id, "done note")
+
+      assert {:ok, reopened} = Tasks.reopen_task(t.id)
+      refute reopened.done
+      assert is_nil(reopened.completion_note)
+      assert is_nil(reopened.completed_at)
+    end
+  end
+
+  describe "delete_task/1" do
+    test "removes the row" do
+      {:ok, t} = Tasks.create_task(%{title: "Delete me", priority: "low"})
+      assert {:ok, _} = Tasks.delete_task(t.id)
+      assert is_nil(Tasks.get_task(t.id))
+    end
+  end
+
+  describe "list_tasks/0 ordering" do
+    test "not-done first, then priority high→med→low, then due ascending (nulls last)" do
+      today = Date.utc_today()
+
+      {:ok, _low}      = Tasks.create_task(%{title: "low open",  priority: "low",  due_on: today})
+      {:ok, high_late} = Tasks.create_task(%{title: "high late", priority: "high", due_on: Date.add(today, 5)})
+      {:ok, high_soon} = Tasks.create_task(%{title: "high soon", priority: "high", due_on: today})
+      {:ok, high_nil}  = Tasks.create_task(%{title: "high nil",  priority: "high"})
+      {:ok, med}       = Tasks.create_task(%{title: "med open",  priority: "med",  due_on: today})
+      {:ok, done}      = Tasks.create_task(%{title: "high done", priority: "high", due_on: today})
+      {:ok, _}         = Tasks.complete_task(done.id, nil)
+
+      titles = Tasks.list_tasks() |> Enum.map(& &1.title)
+
+      # Among open high tasks: due-soonest first, nil due last.
+      assert Enum.take(titles, 4) == ["high soon", "high late", "high nil", "med open"]
+      # Done task always sinks to the bottom.
+      assert List.last(titles) == "high done"
+      # Sanity: the explicit-due high tasks ordered ascending.
+      assert index_of(titles, high_soon.title) < index_of(titles, high_late.title)
+      assert index_of(titles, high_late.title) < index_of(titles, high_nil.title)
+      assert index_of(titles, med.title) < index_of(titles, "high done")
+    end
+  end
+
+  defp index_of(list, item), do: Enum.find_index(list, &(&1 == item))
+
+  defp errors_on(changeset) do
+    Ecto.Changeset.traverse_errors(changeset, fn {message, opts} ->
+      Regex.replace(~r"%{(\w+)}", message, fn _, key ->
+        opts |> Keyword.get(String.to_existing_atom(key), key) |> to_string()
+      end)
+    end)
+  end
+end
