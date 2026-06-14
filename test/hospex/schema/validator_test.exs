@@ -70,6 +70,10 @@ defmodule Hospex.Schema.ValidatorTest do
     test "content/content.yaml is valid" do
       assert :ok = Validator.validate_file(example_file("content/content.yaml"), :content)
     end
+
+    test "checkin.yaml is valid" do
+      assert :ok = Validator.validate_file(example_file("checkin.yaml"), :checkin)
+    end
   end
 
   # ---------------------------------------------------------------------------

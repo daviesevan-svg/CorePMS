@@ -9,6 +9,8 @@ defmodule HospexWeb.BookingDrawerComponents do
   """
   use Phoenix.Component
 
+  alias HospexWeb.CheckinWizard, as: CW
+
   # ── Template helpers (moved from CalendarLive) ────────────────
 
   def format_money(amount) do
@@ -96,6 +98,7 @@ defmodule HospexWeb.BookingDrawerComponents do
     <%= if @wizard do %>
       <% wz = @wizard %>
       <% wd = wz.data %>
+      <% step = CW.current_step(wz) %>
       <div class="wiz-scrim" phx-click="wizard_cancel"></div>
       <div class="wiz" role="dialog" aria-modal="true" phx-window-keydown="wizard_cancel" phx-key="Escape">
         <div class="wiz-head">
@@ -109,85 +112,96 @@ defmodule HospexWeb.BookingDrawerComponents do
         </div>
 
         <ol class="wiz-stepper">
-          <%= for {label, n} <- [{"Identity", 1}, {"Contact", 2}, {"Payment", 3}] do %>
-            <li data-active={if wz.step == n, do: "1", else: "0"}
-                data-done={if wz.step > n, do: "1", else: "0"}>
-              <span class="wiz-dot"><%= n %></span>
-              <span class="wiz-label"><%= label %></span>
+          <%= for {s, n} <- Enum.with_index(wz.steps) do %>
+            <li data-active={if wz.step_idx == n, do: "1", else: "0"}
+                data-done={if wz.step_idx > n, do: "1", else: "0"}>
+              <span class="wiz-dot"><%= n + 1 %></span>
+              <span class="wiz-label"><%= s["title"] %></span>
             </li>
           <% end %>
         </ol>
 
         <form class="wiz-body" phx-change="wizard_change" onsubmit="event.preventDefault()">
-          <%= case wz.step do %>
-            <% 1 -> %>
-              <div class="wiz-section">
-                <div class="wiz-fact">
-                  Spanish regulations require a government-issued ID for every guest at check-in.
-                </div>
-                <label class="wiz-field">
-                  <span class="wiz-k">Document type</span>
-                  <select name="doc_type">
-                    <%= for {v, l} <- [{"passport", "Passport"}, {"id_card", "National ID card"}, {"drivers", "Driver's licence"}] do %>
-                      <option value={v} selected={wd.doc_type == v}><%= l %></option>
-                    <% end %>
-                  </select>
-                </label>
-                <label class="wiz-field">
-                  <span class="wiz-k">Document number</span>
-                  <input type="text" name="doc_number" value={wd.doc_number} placeholder="e.g. P4839271" />
-                </label>
-                <label class="wiz-field">
-                  <span class="wiz-k">Country of issue</span>
-                  <input type="text" name="doc_country" value={wd.doc_country} maxlength="2" />
-                </label>
-                <div class="wiz-field">
-                  <span class="wiz-k">Document image</span>
-                  <button type="button" class={"wiz-drop#{if wd.doc_uploaded, do: " uploaded", else: ""}"}
-                          phx-click="wizard_upload_sim">
-                    <%= if wd.doc_uploaded do %>
-                      <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m4 8 3 3 5-6"/></svg>
-                      <span><strong>passport.jpg</strong> uploaded</span>
-                      <span class="wiz-drop-meta">Replace</span>
-                    <% else %>
-                      <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 11.5v1.5a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-1.5M8 2.5v8M4.5 6 8 2.5 11.5 6"/></svg>
-                      <span><strong>Click to upload</strong> a photo of the document</span>
-                      <span class="wiz-drop-meta">JPG, PNG, PDF · max 5 MB</span>
-                    <% end %>
-                  </button>
-                </div>
-              </div>
+          <%= cond do %>
+            <% step == nil -> %>
+              <div class="wiz-section"><div class="wiz-fact">No check-in steps are configured.</div></div>
 
-            <% 2 -> %>
+            <% step["kind"] == "builtin" and step["builtin"] == "identity" -> %>
               <div class="wiz-section">
-                <div class="wiz-fact">
-                  Confirm contact details. The hotel uses email for the digital receipt and any post-stay correspondence.
-                </div>
-                <label class="wiz-field">
-                  <span class="wiz-k">Email</span>
-                  <input type="email" name="email" value={wd.email} />
-                </label>
-                <label class="wiz-field">
-                  <span class="wiz-k">Phone</span>
-                  <input type="tel" name="phone" value={wd.phone} />
-                </label>
-                <button type="button" class={"wiz-toggle#{if wd.email_consent, do: " on", else: ""}"}
-                        phx-click="wizard_toggle" phx-value-field="email_consent">
-                  <span class="wiz-toggle-box">
-                    <%= if wd.email_consent do %>
-                      <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 8 3 3 5-6"/></svg>
-                    <% end %>
-                  </span>
-                  <span class="wiz-toggle-label">Guest agrees to receive booking emails from the hotel</span>
-                </button>
-              </div>
-
-            <% 3 -> %>
-              <div class="wiz-section">
-                <%= if wz.balance > 0 do %>
-                  <div class="wiz-fact">
-                    Hotel policy: rooms must be paid in full at check-in. Outstanding balance is collected now.
+                <div class="wiz-fact">A government-issued ID is recorded for every guest at check-in.</div>
+                <%= if CW.field_on?(step, "doc_type") do %>
+                  <label class="wiz-field">
+                    <span class="wiz-k">Document type</span>
+                    <select name="doc_type">
+                      <%= for {v, l} <- [{"passport", "Passport"}, {"id_card", "National ID card"}, {"drivers", "Driver's licence"}] do %>
+                        <option value={v} selected={wd.doc_type == v}><%= l %></option>
+                      <% end %>
+                    </select>
+                  </label>
+                <% end %>
+                <%= if CW.field_on?(step, "doc_number") do %>
+                  <label class="wiz-field">
+                    <span class="wiz-k">Document number</span>
+                    <input type="text" name="doc_number" value={wd.doc_number} placeholder="e.g. P4839271" />
+                  </label>
+                <% end %>
+                <%= if CW.field_on?(step, "doc_country") do %>
+                  <label class="wiz-field">
+                    <span class="wiz-k">Country of issue</span>
+                    <input type="text" name="doc_country" value={wd.doc_country} maxlength="2" />
+                  </label>
+                <% end %>
+                <%= if CW.field_on?(step, "doc_image") do %>
+                  <div class="wiz-field">
+                    <span class="wiz-k">Document image</span>
+                    <button type="button" class={"wiz-drop#{if wd.doc_uploaded, do: " uploaded", else: ""}"}
+                            phx-click="wizard_upload_sim">
+                      <%= if wd.doc_uploaded do %>
+                        <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="m4 8 3 3 5-6"/></svg>
+                        <span><strong>passport.jpg</strong> uploaded</span>
+                        <span class="wiz-drop-meta">Replace</span>
+                      <% else %>
+                        <svg viewBox="0 0 16 16" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 11.5v1.5a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1v-1.5M8 2.5v8M4.5 6 8 2.5 11.5 6"/></svg>
+                        <span><strong>Click to upload</strong> a photo of the document</span>
+                        <span class="wiz-drop-meta">JPG, PNG, PDF · max 5 MB</span>
+                      <% end %>
+                    </button>
                   </div>
+                <% end %>
+              </div>
+
+            <% step["kind"] == "builtin" and step["builtin"] == "contact" -> %>
+              <div class="wiz-section">
+                <div class="wiz-fact">Confirm contact details. The hotel uses email for the digital receipt and any post-stay correspondence.</div>
+                <%= if CW.field_on?(step, "email") do %>
+                  <label class="wiz-field">
+                    <span class="wiz-k">Email</span>
+                    <input type="email" name="email" value={wd.email} />
+                  </label>
+                <% end %>
+                <%= if CW.field_on?(step, "phone") do %>
+                  <label class="wiz-field">
+                    <span class="wiz-k">Phone</span>
+                    <input type="tel" name="phone" value={wd.phone} />
+                  </label>
+                <% end %>
+                <%= if CW.field_on?(step, "email_consent") do %>
+                  <button type="button" class={"wiz-toggle#{if wd.email_consent, do: " on", else: ""}"}
+                          phx-click="wizard_toggle" phx-value-field="email_consent">
+                    <span class="wiz-toggle-box">
+                      <%= if wd.email_consent do %>
+                        <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m4 8 3 3 5-6"/></svg>
+                      <% end %>
+                    </span>
+                    <span class="wiz-toggle-label">Guest agrees to receive booking emails from the hotel</span>
+                  </button>
+                <% end %>
+              </div>
+
+            <% step["kind"] == "builtin" and step["builtin"] == "payment" -> %>
+              <div class="wiz-section">
+                <%= if CW.field_on?(step, "collect_payment") and wz.balance > 0 do %>
+                  <div class="wiz-fact">Hotel policy: rooms must be paid in full at check-in. Outstanding balance is collected now.</div>
                   <div class="wiz-balance">
                     <div class="wiz-balance-row"><span>Total</span><span class="mono"><%= format_money(wz.total) %></span></div>
                     <div class="wiz-balance-row"><span>Already paid</span><span class="mono"><%= format_money(wz.paid) %></span></div>
@@ -221,38 +235,96 @@ defmodule HospexWeb.BookingDrawerComponents do
                     <span class="wiz-toggle-label">Skip — collect later (override hotel policy)</span>
                   </button>
                 <% else %>
-                  <div class="wiz-fact ok">
-                    ✓ Balance fully settled. Nothing to collect at check-in.
-                  </div>
+                  <div class="wiz-fact ok">✓ Balance fully settled. Nothing to collect at check-in.</div>
                 <% end %>
-
-                <div class="wiz-summary">
-                  <div class="wiz-summary-title">Ready to check in</div>
-                  <ul>
-                    <li><span>Document</span><span><%= wd.doc_type %> · <%= wd.doc_number != "" && wd.doc_number || "—" %> <%= if wd.doc_uploaded, do: "✓", else: "" %></span></li>
-                    <li><span>Email</span><span class="mono"><%= wd.email %></span></li>
-                    <%= if wz.balance > 0 and not wd.skip_payment do %>
-                      <li><span>Payment</span><span><%= wd.payment_method %> · <%= format_money(wd.payment_amount) %></span></li>
-                    <% end %>
-                  </ul>
-                </div>
               </div>
+
+            <% step["kind"] == "custom" -> %>
+              <div class="wiz-section">
+                <%= for q <- step["questions"] || [] do %>
+                  <.wizard_question q={q} answers={wz.answers} />
+                  <%= if CW.reveal_children?(q, wz.answers) do %>
+                    <div class="wiz-children">
+                      <%= for c <- q["children"] || [] do %>
+                        <.wizard_question q={c} answers={wz.answers} />
+                      <% end %>
+                    </div>
+                  <% end %>
+                <% end %>
+              </div>
+
+            <% true -> %>
           <% end %>
         </form>
 
         <div class="wiz-foot">
-          <%= if wz.step > 1 do %>
-            <button class="dr-action" phx-click="wizard_back">Back</button>
-          <% else %>
+          <%= if CW.first?(wz) do %>
             <button class="dr-action" phx-click="wizard_cancel">Cancel</button>
-          <% end %>
-          <%= if wz.step < 3 do %>
-            <button class="dr-action primary" phx-click="wizard_next">Continue</button>
           <% else %>
+            <button class="dr-action" phx-click="wizard_back">Back</button>
+          <% end %>
+          <%= if CW.last?(wz) do %>
             <button class="dr-action primary" phx-click="wizard_complete">Complete check-in</button>
+          <% else %>
+            <button class="dr-action primary" phx-click="wizard_next">Continue</button>
           <% end %>
         </div>
       </div>
+    <% end %>
+    """
+  end
+
+  # A single custom question / conditional child. yes/no renders as two
+  # buttons (phx-click), everything else as a form input read by wizard_change.
+  attr :q, :map, required: true
+  attr :answers, :map, required: true
+
+  def wizard_question(assigns) do
+    assigns = assign(assigns, :val, Map.get(assigns.answers, assigns.q["id"]))
+
+    ~H"""
+    <%= case @q["type"] do %>
+      <% "yesno" -> %>
+        <div class="wiz-field">
+          <span class="wiz-k"><%= @q["label"] %><%= if @q["required"], do: " *" %></span>
+          <div class="wiz-radio-row">
+            <%= for {v, l} <- [{"yes", "Yes"}, {"no", "No"}] do %>
+              <button type="button" class={"wiz-radio#{if @val == v, do: " on", else: ""}"}
+                      phx-click="wizard_answer" phx-value-id={@q["id"]} phx-value-val={v}>
+                <%= l %>
+              </button>
+            <% end %>
+          </div>
+        </div>
+
+      <% "select" -> %>
+        <label class="wiz-field">
+          <span class="wiz-k"><%= @q["label"] %><%= if @q["required"], do: " *" %></span>
+          <select name={"answer[#{@q["id"]}]"}>
+            <option value="" selected={@val in [nil, ""]}>— Select —</option>
+            <%= for opt <- @q["options"] || [] do %>
+              <option value={opt} selected={@val == opt}><%= opt %></option>
+            <% end %>
+          </select>
+        </label>
+
+      <% "number" -> %>
+        <label class="wiz-field">
+          <span class="wiz-k"><%= @q["label"] %><%= if @q["required"], do: " *" %></span>
+          <input type="number" name={"answer[#{@q["id"]}]"} value={@val} />
+        </label>
+
+      <% "date" -> %>
+        <label class="wiz-field">
+          <span class="wiz-k"><%= @q["label"] %><%= if @q["required"], do: " *" %></span>
+          <input type="date" name={"answer[#{@q["id"]}]"} value={@val} />
+        </label>
+
+      <% _ -> %>
+        <label class="wiz-field">
+          <span class="wiz-k"><%= @q["label"] %><%= if @q["required"], do: " *" %></span>
+          <input type="text" name={"answer[#{@q["id"]}]"} value={@val} phx-debounce="300" />
+        </label>
     <% end %>
     """
   end

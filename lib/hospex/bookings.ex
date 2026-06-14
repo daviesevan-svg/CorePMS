@@ -385,6 +385,19 @@ defmodule Hospex.Bookings do
   end
 
   @doc """
+  Logs a check-in audit event capturing the custom answers collected by the
+  wizard. Records history without mutating booking data (identity transform),
+  so the details show up in the drawer's History tab.
+  """
+  def record_checkin(stay_id, summary) when is_binary(summary) do
+    with {:ok, booking_id} <- booking_id_for_stay(stay_id) do
+      booking_id
+      |> mutate_and_log(& &1, :checkin, summary: summary)
+      |> ok_and_broadcast(booking_id)
+    end
+  end
+
+  @doc """
   Record a payment of `amount` against a booking. Delegates to
   `add_transaction/2` so the ledger, `paid`, and the audit log always
   move together.

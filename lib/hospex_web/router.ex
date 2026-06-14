@@ -48,6 +48,7 @@ defmodule HospexWeb.Router do
       live "/settings/property",   Settings.PropertyLive,  :index
       live "/settings/room-types", Settings.RoomTypesLive, :index
       live "/settings/rooms",      Settings.RoomsLive,     :index
+      live "/settings/checkin",    Settings.CheckinLive,   :index
       live "/settings/channels",                     Settings.ChannelsLive,        :index
       live "/settings/channels/connect",             Settings.ChannelsConnectLive, :index
       live "/settings/channels/connect/:channel_id", Settings.ChannelsConnectLive, :edit

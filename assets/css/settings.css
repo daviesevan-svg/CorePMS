@@ -848,3 +848,72 @@ body{background:var(--bg-sunk)}
 .cx-chan-row:last-child{border-bottom:none}
 .cx-chan-title{font-weight:600;color:var(--ink);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .lnk{color:var(--accent);text-decoration:underline}
+
+/* ── Check-in wizard builder ─────────────────────────────────── */
+.contents{display:contents}
+
+.checkin-questions{display:flex;flex-direction:column;gap:12px}
+.checkin-q{
+  border:1px solid var(--line);border-radius:9px;padding:12px;
+  background:var(--bg-elev);display:flex;flex-direction:column;gap:10px
+}
+.checkin-q-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.checkin-q-label{flex:1;min-width:160px;height:32px;font-size:12.5px}
+.checkin-q-type{width:130px;height:32px;font-size:12.5px}
+.checkin-q-actions{display:flex;align-items:center;gap:6px;margin-left:auto}
+.checkin-req{
+  display:flex;align-items:center;gap:5px;font-size:12px;color:var(--ink-2);
+  white-space:nowrap;cursor:pointer
+}
+.checkin-req input{accent-color:var(--accent)}
+
+.checkin-q .ic-btn,.checkin-child .ic-btn{
+  width:28px;height:28px;border-radius:7px;border:1px solid var(--line);
+  background:var(--bg-elev);color:var(--ink-3);display:grid;place-items:center;cursor:pointer
+}
+.checkin-q .ic-btn:hover,.checkin-child .ic-btn:hover{
+  background:var(--bg-sunk);color:var(--ink);border-color:var(--line-strong)
+}
+.checkin-q .ic-btn[disabled],.checkin-child .ic-btn[disabled]{opacity:.4;cursor:not-allowed}
+.checkin-q .ic-btn svg,.checkin-child .ic-btn svg{width:13px;height:13px}
+
+.set-sect-aside .ic-btn{
+  width:30px;height:30px;border-radius:7px;border:1px solid var(--line);
+  background:var(--bg-elev);color:var(--ink-3);display:grid;place-items:center;cursor:pointer
+}
+.set-sect-aside .ic-btn:hover{background:var(--bg-sunk);color:var(--ink);border-color:var(--line-strong)}
+.set-sect-aside .ic-btn[disabled]{opacity:.4;cursor:not-allowed}
+.set-sect-aside .ic-btn svg{width:13px;height:13px}
+
+.checkin-options{
+  display:flex;flex-direction:column;gap:7px;padding:10px;border-radius:8px;
+  background:var(--bg-sunk)
+}
+.checkin-options .field-label{margin-bottom:2px}
+.checkin-option{display:flex;align-items:center;gap:7px}
+.checkin-option .input{height:30px;font-size:12.5px}
+
+.checkin-reveal{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.checkin-reveal-label{font-size:12px;color:var(--ink-2)}
+
+.checkin-children{
+  display:flex;flex-direction:column;gap:10px;margin-top:4px;
+  padding-left:14px;border-left:2px solid var(--line)
+}
+.checkin-child{
+  border:1px solid var(--line);border-radius:8px;padding:10px;background:var(--bg-sunk);
+  display:flex;flex-direction:column;gap:9px
+}
+
+.checkin-preview{display:flex;flex-direction:column;gap:6px}
+.checkin-preview-step{
+  display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:8px;
+  border:1px solid var(--line);background:var(--bg-sunk);font-size:13px
+}
+.checkin-preview-num{
+  width:20px;height:20px;border-radius:6px;background:var(--ink);color:var(--bg-elev);
+  display:grid;place-items:center;font-size:11px;font-weight:600;flex-shrink:0
+}
+.checkin-preview-title{font-weight:600;color:var(--ink)}
+.checkin-preview-meta{margin-left:auto;font-size:11.5px;color:var(--ink-3)}
+.checkin-preview-empty{font-size:12.5px;color:var(--ink-3);font-style:italic}
