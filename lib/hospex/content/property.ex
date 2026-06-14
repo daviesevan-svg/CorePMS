@@ -83,6 +83,39 @@ defmodule Hospex.Content.Property do
     end)
   end
 
+  # ── Check-in wizard config ────────────────────────────────────
+
+  @doc "Loads the check-in wizard configuration (checkin.yaml). `{:error, :enoent}` if not configured yet."
+  def get_checkin do
+    read_yaml(checkin_file())
+  end
+
+  @doc """
+  Saves the check-in wizard configuration. The `steps` array replaces the
+  stored one wholesale (deep_merge replaces lists), so removals/reorders persist.
+  """
+  def save_checkin(map) when is_map(map) do
+    path = checkin_file()
+
+    with_file_lock(path, fn ->
+      existing =
+        case read_yaml(path) do
+          {:ok, m} -> m
+          _        -> %{}
+        end
+
+      merged = deep_merge(existing, stringify(map))
+
+      with :ok <- Validator.validate_map(merged, :checkin, schema_version(merged)),
+           :ok <- write_yaml(path, merged) do
+        broadcast(:checkin, "checkin")
+        {:ok, merged}
+      end
+    end)
+  end
+
+  defp checkin_file, do: Path.join(property_dir(), "checkin.yaml")
+
   # ── Photo helpers ─────────────────────────────────────────────
   #
   # Pure map manipulators. They DON'T touch disk — call `save_property/1`

@@ -1,0 +1,60 @@
+schema_version: "1.0"
+
+# Front-desk check-in wizard. Steps are shown in the order listed here.
+# Built-in steps (identity / contact / payment) carry the standard fields;
+# toggle individual fields off under `fields`. Add custom steps with your
+# own questions, including yes/no questions that reveal follow-up fields.
+steps:
+  - id: identity
+    kind: builtin
+    builtin: identity
+    title: Identity
+    enabled: true
+    fields:
+      doc_type: true
+      doc_number: true
+      doc_country: true
+      doc_image: true
+
+  - id: contact
+    kind: builtin
+    builtin: contact
+    title: Contact
+    enabled: true
+    fields:
+      email: true
+      phone: true
+      email_consent: true
+
+  - id: parking
+    kind: custom
+    title: Parking
+    enabled: true
+    questions:
+      - id: parked
+        type: yesno
+        label: Did you park in the car park?
+        required: false
+        reveal_on: "yes"
+        children:
+          - id: car_reg
+            type: text
+            label: Car registration number
+            required: true
+      - id: arrival_method
+        type: select
+        label: How did you arrive?
+        required: false
+        options:
+          - Car
+          - Train
+          - Taxi
+          - On foot
+
+  - id: payment
+    kind: builtin
+    builtin: payment
+    title: Payment
+    enabled: true
+    fields:
+      collect_payment: true

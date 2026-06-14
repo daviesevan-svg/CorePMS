@@ -5,6 +5,7 @@ defmodule HospexWeb.CalendarLive do
 
   alias Hospex.Content.{BookingDetails, Pricing}
   alias Hospex.Bookings
+  alias HospexWeb.CheckinWizard
 
   @months_abbr ~w(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec)
   @months_long ~w(January February March April May June July August September October November December)
@@ -1062,39 +1063,18 @@ defmodule HospexWeb.CalendarLive do
         Enum.find(socket.assigns.all_bookings, &(&1.id == stay.booking_id))
       )
 
-      wizard = %{
-        stay_id: stay_id,
-        step:    1,
-        guest:   stay.guest_name,
-        total:   stay.total,
-        paid:    stay.paid,
-        balance: stay.total - stay.paid,
-        data: %{
-          doc_type:       "passport",
-          doc_number:     "",
-          doc_country:    details.country_code,
-          doc_uploaded:   false,
-          email:          details.email,
-          phone:          details.phone,
-          email_consent:  true,
-          payment_method: "card",
-          payment_amount: stay.total - stay.paid,
-          skip_payment:   false
-        }
-      }
-
-      {:noreply, assign(socket, checkin_wizard: wizard, quick_menu: nil)}
+      {:noreply, assign(socket, checkin_wizard: CheckinWizard.build(stay, details), quick_menu: nil)}
     else
       {:noreply, socket}
     end
   end
 
   def handle_event("wizard_back", _, %{assigns: %{checkin_wizard: w}} = socket) when not is_nil(w) do
-    {:noreply, assign(socket, :checkin_wizard, %{w | step: max(1, w.step - 1)})}
+    {:noreply, assign(socket, :checkin_wizard, CheckinWizard.back(w))}
   end
 
   def handle_event("wizard_next", _, %{assigns: %{checkin_wizard: w}} = socket) when not is_nil(w) do
-    {:noreply, assign(socket, :checkin_wizard, %{w | step: min(3, w.step + 1)})}
+    {:noreply, assign(socket, :checkin_wizard, CheckinWizard.next(w))}
   end
 
   def handle_event("wizard_cancel", _, socket) do
@@ -1102,34 +1082,25 @@ defmodule HospexWeb.CalendarLive do
   end
 
   def handle_event("wizard_change", params, %{assigns: %{checkin_wizard: w}} = socket) when not is_nil(w) do
-    data =
-      w.data
-      |> maybe_put(params, "doc_type")
-      |> maybe_put(params, "doc_number")
-      |> maybe_put(params, "doc_country")
-      |> maybe_put(params, "email")
-      |> maybe_put(params, "phone")
-      |> maybe_put(params, "payment_method")
-      |> maybe_put(params, "payment_amount", &to_int/1)
+    {:noreply, assign(socket, :checkin_wizard, CheckinWizard.change(w, params))}
+  end
 
-    {:noreply, assign(socket, :checkin_wizard, %{w | data: data})}
+  def handle_event("wizard_answer", %{"id" => id, "val" => val}, %{assigns: %{checkin_wizard: w}} = socket) when not is_nil(w) do
+    {:noreply, assign(socket, :checkin_wizard, CheckinWizard.answer(w, id, val))}
   end
 
   def handle_event("wizard_toggle", %{"field" => field}, %{assigns: %{checkin_wizard: w}} = socket) when not is_nil(w) do
-    key      = String.to_existing_atom(field)
-    current  = Map.get(w.data, key, false)
-    {:noreply, assign(socket, :checkin_wizard, %{w | data: Map.put(w.data, key, not current)})}
+    {:noreply, assign(socket, :checkin_wizard, CheckinWizard.toggle(w, field))}
   end
 
   def handle_event("wizard_upload_sim", _, %{assigns: %{checkin_wizard: w}} = socket) when not is_nil(w) do
-    {:noreply, assign(socket, :checkin_wizard, %{w | data: %{w.data | doc_uploaded: true}})}
+    {:noreply, assign(socket, :checkin_wizard, CheckinWizard.upload(w))}
   end
 
   def handle_event("wizard_complete", _, %{assigns: %{checkin_wizard: w}} = socket) when not is_nil(w) do
     socket =
       socket
-      |> apply_wizard_payment(w)
-      |> update_stay_status(w.stay_id, :in)
+      |> complete_checkin(w)
       |> assign(checkin_wizard: nil,
                 action_flash: "✓ Checked in #{w.guest}")
 
@@ -1815,13 +1786,26 @@ defmodule HospexWeb.CalendarLive do
   defp to_int(value) when is_integer(value), do: value
   defp to_int(_), do: 0
 
-  defp apply_wizard_payment(socket, %{data: %{skip_payment: true}}), do: socket
-  defp apply_wizard_payment(socket, %{stay_id: stay_id, data: %{payment_amount: amt}}) when amt > 0 do
-    stay = Enum.find(socket.assigns.all_stays, &(&1.id == stay_id))
-    if stay, do: Bookings.apply_payment(stay.booking_id, amt)
+  defp complete_checkin(socket, w) do
+    if CheckinWizard.payment_step?(w), do: apply_wizard_payment(w, socket.assigns.all_stays)
+    Bookings.update_stay_status(w.stay_id, :in)
+
+    case CheckinWizard.answers_summary(w) do
+      nil -> :ok
+      summary -> Bookings.record_checkin(w.stay_id, summary)
+    end
+
     reload_bookings(socket)
   end
-  defp apply_wizard_payment(socket, _), do: socket
+
+  defp apply_wizard_payment(%{data: %{skip_payment: true}}, _stays), do: :ok
+
+  defp apply_wizard_payment(%{stay_id: stay_id, data: %{payment_amount: amt}}, stays) when amt > 0 do
+    stay = Enum.find(stays, &(&1.id == stay_id))
+    if stay, do: Bookings.apply_payment(stay.booking_id, amt)
+  end
+
+  defp apply_wizard_payment(_w, _stays), do: :ok
 
   defp update_stay_status(socket, stay_id, new_status) do
     Bookings.update_stay_status(stay_id, new_status)

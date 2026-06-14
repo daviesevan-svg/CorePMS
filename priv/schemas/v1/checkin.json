@@ -1,0 +1,70 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.channex.io/property-content/v1/checkin.json",
+  "title": "Check-in wizard configuration",
+  "description": "Configures the front-desk check-in wizard: which steps appear, in what order, which built-in fields are collected, and any custom questions (with conditional follow-ups). One file at checkin.yaml.",
+  "type": "object",
+  "required": ["schema_version"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^1\\.\\d+$"
+    },
+    "steps": {
+      "type": "array",
+      "description": "Ordered wizard steps. Array order is the order shown to staff.",
+      "items": { "$ref": "#/$defs/step" }
+    }
+  },
+  "$defs": {
+    "step": {
+      "type": "object",
+      "required": ["id", "kind", "title", "enabled"],
+      "additionalProperties": false,
+      "properties": {
+        "id":      { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+        "kind":    { "enum": ["builtin", "custom"] },
+        "builtin": { "enum": ["identity", "contact", "payment"], "description": "Which built-in step this is. Required when kind is builtin." },
+        "title":   { "type": "string", "minLength": 1 },
+        "enabled": { "type": "boolean" },
+        "fields": {
+          "type": "object",
+          "description": "Per-field visibility toggles for a built-in step (e.g. doc_image, phone, collect_payment).",
+          "additionalProperties": { "type": "boolean" }
+        },
+        "questions": {
+          "type": "array",
+          "description": "Custom questions, for a custom step.",
+          "items": { "$ref": "#/$defs/question" }
+        }
+      }
+    },
+    "question": {
+      "type": "object",
+      "required": ["id", "type", "label"],
+      "additionalProperties": false,
+      "properties": {
+        "id":        { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+        "type":      { "enum": ["yesno", "text", "select", "number", "date"] },
+        "label":     { "type": "string", "minLength": 1 },
+        "required":  { "type": "boolean" },
+        "options":   { "type": "array", "items": { "type": "string" }, "description": "Choices for a select question." },
+        "reveal_on": { "enum": ["yes", "no"], "description": "For a yesno question: show child questions when the answer equals this." },
+        "children":  { "type": "array", "items": { "$ref": "#/$defs/child_question" }, "description": "Conditional follow-up questions revealed by a yesno answer." }
+      }
+    },
+    "child_question": {
+      "type": "object",
+      "required": ["id", "type", "label"],
+      "additionalProperties": false,
+      "properties": {
+        "id":       { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+        "type":     { "enum": ["text", "select", "number", "date"] },
+        "label":    { "type": "string", "minLength": 1 },
+        "required": { "type": "boolean" },
+        "options":  { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

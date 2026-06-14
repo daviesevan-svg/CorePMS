@@ -17,7 +17,7 @@ defmodule Hospex.Schema.Validator do
 
   alias Hospex.Schema.Errors
 
-  @valid_entity_types ~w(property room_type room rate_plan policy content)a
+  @valid_entity_types ~w(property room_type room rate_plan policy content checkin)a
 
   @doc """
   Validates a YAML file on disk against the schema for the given entity type.
