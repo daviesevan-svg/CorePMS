@@ -450,6 +450,26 @@
 .task-dr-desc { font-size: 13px; color: var(--ink-2); line-height: 1.45; white-space: pre-wrap; }
 .task-dr-meta { font-size: 11.5px; color: var(--ink-4); margin-top: 6px; }
 
+/* Linked-booking row inside the task drawer (view) */
+.task-dr-link {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 9px 11px; border: 1px solid var(--line); border-radius: 9px;
+  background: var(--bg-elev); color: var(--ink); cursor: pointer;
+  font: inherit; font-size: 13px; font-weight: 500; text-align: left;
+}
+.task-dr-link:hover { background: var(--bg-sunk); border-color: var(--line-strong); }
+.task-dr-link > span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.task-dr-link svg { flex: none; color: var(--ink-3); }
+.task-dr-link-go { color: var(--ink-4); }
+.task-field-opt { font-weight: 400; color: var(--ink-4); text-transform: none; letter-spacing: 0; }
+
+/* Linked-booking chip on a task row */
+.task-booking-chip {
+  display: inline-flex; align-items: center; gap: 3px;
+  color: var(--ink-3); font-variant-numeric: tabular-nums;
+}
+.task-booking-chip svg { color: var(--ink-4); }
+
 .task-dr-foot {
   margin-top: auto; padding: 12px 18px;
   border-top: 1px solid var(--line);

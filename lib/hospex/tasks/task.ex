@@ -14,16 +14,18 @@ defmodule Hospex.Tasks.Task do
     field :done,            :boolean, default: false
     field :completion_note, :string
     field :completed_at,    :naive_datetime
+    field :booking_id,      :integer
 
     timestamps()
   end
 
-  @castable ~w(title description priority due_on done completion_note completed_at)a
+  @castable ~w(title description priority due_on done completion_note completed_at booking_id)a
 
   def changeset(task, attrs) do
     task
     |> cast(attrs, @castable)
     |> validate_required([:title, :priority])
     |> validate_inclusion(:priority, ~w(high med low))
+    |> foreign_key_constraint(:booking_id)
   end
 end
