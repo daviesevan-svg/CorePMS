@@ -429,6 +429,8 @@ defmodule HospexWeb.BookingDrawerComponents do
   attr :focused_stay_id, :any, default: nil
   attr :editable, :boolean, default: true
   attr :back_label, :string, default: "Calendar"
+  attr :tasks, :list, default: []
+  attr :task_actions, :boolean, default: false
 
   def booking_drawer(assigns) do
     ~H"""
@@ -804,6 +806,40 @@ defmodule HospexWeb.BookingDrawerComponents do
                     <div class="dr-requests">
                       <%= for r <- d.requests do %>
                         <div class="dr-request"><span class="bullet"></span><span><%= r %></span></div>
+                      <% end %>
+                    </div>
+                  <% end %>
+                </div>
+              <% end %>
+
+              <%!-- Tasks linked to this booking --%>
+              <%= if not is_hold and (@task_actions or @tasks != []) do %>
+                <div class="dr-sect">
+                  <div class="dr-sect-head">
+                    <div class="dr-sect-title">Tasks</div>
+                    <%= if @task_actions do %>
+                      <button class="dr-sect-action" phx-click="new_task_for_booking" phx-value-booking-id={b.id}>+ Add</button>
+                    <% end %>
+                  </div>
+                  <%= if @task_actions and @tasks == [] do %>
+                    <div class="dr-empty dashed">No tasks linked</div>
+                  <% else %>
+                    <div class="dr-tasklist">
+                      <%= for task <- @tasks do %>
+                        <%= if @task_actions do %>
+                          <button type="button" class="dr-task" data-done={to_string(task.done)}
+                                  phx-click="open_task" phx-value-id={task.id}>
+                            <span class={"dr-task-dot" <> if(task.done, do: " done", else: "")}></span>
+                            <span class="dr-task-title"><%= task.title %></span>
+                            <span class={"task-pri #{task.priority}"}><span class="dot"></span></span>
+                          </button>
+                        <% else %>
+                          <div class="dr-task" data-done={to_string(task.done)}>
+                            <span class={"dr-task-dot" <> if(task.done, do: " done", else: "")}></span>
+                            <span class="dr-task-title"><%= task.title %></span>
+                            <span class={"task-pri #{task.priority}"}><span class="dot"></span></span>
+                          </div>
+                        <% end %>
                       <% end %>
                     </div>
                   <% end %>

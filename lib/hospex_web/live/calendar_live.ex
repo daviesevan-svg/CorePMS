@@ -48,7 +48,7 @@ defmodule HospexWeb.CalendarLive do
                 zoom_level: @zoom_default, zoom_max: @zoom_max, view_span: zoom.span)
       |> assign(room_groups: room_groups, all_bookings: bookings, all_stays: stays, all_rooms: all_rooms)
       |> assign(plan: Pricing.primary_plan())
-      |> assign(collapsed: %{}, selected_booking: nil, drawer_tab: "details",
+      |> assign(collapsed: %{}, selected_booking: nil, selected_booking_tasks: [], drawer_tab: "details",
                 focused_stay_id: nil, expanded_stays: MapSet.new(),
                 rate_breakdown_open: MapSet.new(),
                 quick_menu: nil, action_flash: nil, checkin_wizard: nil,
@@ -78,6 +78,7 @@ defmodule HospexWeb.CalendarLive do
         {:noreply,
          assign(socket,
            selected_booking: nil,
+           selected_booking_tasks: [],
            focused_stay_id: nil,
            expanded_stays: MapSet.new(),
            block_edit: %{},
@@ -1127,7 +1128,7 @@ defmodule HospexWeb.CalendarLive do
   def handle_event("close_booking", _, socket) do
     {:noreply,
      socket
-     |> assign(selected_booking: nil, focused_stay_id: nil, expanded_stays: MapSet.new(),
+     |> assign(selected_booking: nil, selected_booking_tasks: [], focused_stay_id: nil, expanded_stays: MapSet.new(),
                block_edit: %{}, notes_draft: nil)
      |> push_patch(to: ~p"/calendar")}
   end
@@ -1845,7 +1846,7 @@ defmodule HospexWeb.CalendarLive do
           else
             # Deleted elsewhere — close the drawer and clear its URL.
             socket
-            |> assign(selected_booking: nil, focused_stay_id: nil)
+            |> assign(selected_booking: nil, selected_booking_tasks: [], focused_stay_id: nil)
             |> push_patch(to: ~p"/calendar")
           end
 
@@ -1911,8 +1912,15 @@ defmodule HospexWeb.CalendarLive do
         end
       end
 
+    booking_tasks =
+      case selected do
+        %{booking: %{id: id}} -> Hospex.Tasks.list_for_booking(id)
+        _ -> []
+      end
+
     assign(socket,
       selected_booking: selected,
+      selected_booking_tasks: booking_tasks,
       drawer_tab: (if same_booking?, do: socket.assigns.drawer_tab, else: "details"),
       focused_stay_id: stay_id,
       expanded_stays: (if same_booking?, do: socket.assigns.expanded_stays, else: expanded),

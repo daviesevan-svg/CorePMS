@@ -3,6 +3,7 @@ defmodule Hospex.TasksTest do
 
   alias Hospex.Tasks
   alias Hospex.Tasks.Task
+  alias Hospex.Bookings.Booking
   alias Hospex.Repo
 
   setup do
@@ -97,6 +98,46 @@ defmodule Hospex.TasksTest do
       assert index_of(titles, high_late.title) < index_of(titles, high_nil.title)
       assert index_of(titles, med.title) < index_of(titles, "high done")
     end
+  end
+
+  describe "list_for_booking/1" do
+    test "returns only tasks for the booking, in list_tasks/0 order" do
+      today   = Date.utc_today()
+      booking = booking_fixture()
+
+      {:ok, _other} = Tasks.create_task(%{title: "unlinked", priority: "high"})
+      {:ok, low}    = Tasks.create_task(%{title: "low for booking", priority: "low", due_on: today, booking_id: booking.id})
+      {:ok, high}   = Tasks.create_task(%{title: "high for booking", priority: "high", due_on: today, booking_id: booking.id})
+
+      tasks = Tasks.list_for_booking(booking.id)
+      ids   = Enum.map(tasks, & &1.id)
+
+      # Only the two linked tasks; the unlinked one is excluded.
+      assert length(tasks) == 2
+      assert Enum.all?(tasks, &(&1.booking_id == booking.id))
+      # Same ordering as list_tasks/0: high priority before low.
+      assert ids == [high.id, low.id]
+    end
+
+    test "returns [] when no tasks are linked" do
+      booking = booking_fixture()
+      {:ok, _} = Tasks.create_task(%{title: "unlinked", priority: "med"})
+      assert Tasks.list_for_booking(booking.id) == []
+    end
+  end
+
+  defp booking_fixture do
+    today = Date.utc_today()
+
+    %Booking{}
+    |> Booking.changeset(%{
+      ref:        "T#{System.unique_integer([:positive])}",
+      lead_guest: "Test Guest",
+      check_in:   today,
+      check_out:  Date.add(today, 2),
+      status:     "unpaid"
+    })
+    |> Repo.insert!()
   end
 
   defp index_of(list, item), do: Enum.find_index(list, &(&1 == item))

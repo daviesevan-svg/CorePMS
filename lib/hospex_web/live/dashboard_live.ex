@@ -22,7 +22,8 @@ defmodule HospexWeb.DashboardLive do
     # load_dashboard/1 refreshes don't wipe an open drawer.
     socket =
       assign(socket,
-        selected_booking:    nil,
+        selected_booking:       nil,
+        selected_booking_tasks: [],
         drawer_tab:          "details",
         expanded_stays:      MapSet.new(),
         rate_breakdown_open: MapSet.new(),
@@ -69,11 +70,12 @@ defmodule HospexWeb.DashboardLive do
     {:noreply,
      socket
      |> do_select_booking(to_int(id_str))
+     |> assign_selected_booking_tasks()
      |> assign(:arrival_menu, nil)}
   end
 
   def handle_event("close_booking", _, socket) do
-    {:noreply, assign(socket, selected_booking: nil, more_menu_open: false)}
+    {:noreply, assign(socket, selected_booking: nil, selected_booking_tasks: [], more_menu_open: false)}
   end
 
   def handle_event("set_drawer_tab", %{"tab" => tab}, socket)
@@ -280,7 +282,12 @@ defmodule HospexWeb.DashboardLive do
   # ── Tasks: drawer + CRUD ──────────────────────────────────────
 
   def handle_event("open_task", %{"id" => id_str}, socket) do
-    {:noreply, assign(socket, :task_drawer, %{mode: :view, id: to_int(id_str), completing: false, note_draft: ""})}
+    # Fired from the task list AND from the booking drawer's Tasks section;
+    # clear the booking drawer so only the task drawer is visible.
+    {:noreply,
+     socket
+     |> assign(selected_booking: nil, selected_booking_tasks: [], more_menu_open: false)
+     |> assign(:task_drawer, %{mode: :view, id: to_int(id_str), completing: false, note_draft: ""})}
   end
 
   def handle_event("close_task", _, socket) do
@@ -299,14 +306,27 @@ defmodule HospexWeb.DashboardLive do
         {:noreply,
          socket
          |> assign(:task_drawer, nil)
-         |> do_select_booking(stay.id)}
+         |> do_select_booking(stay.id)
+         |> assign_selected_booking_tasks()}
     end
   end
 
   def handle_event("new_task", _, socket) do
     {:noreply, assign(socket,
-      task_drawer: %{mode: :new, id: nil, form: blank_task_form(), error: nil},
+      task_drawer: %{mode: :new, id: nil, form: blank_task_form(), error: nil, booking_query: ""},
       task_menu_open: false)}
+  end
+
+  # "+ Add" from the booking drawer's Tasks section: close the booking drawer
+  # and open a new-task form with this booking pre-linked.
+  def handle_event("new_task_for_booking", %{"booking-id" => id_str}, socket) do
+    form = %{blank_task_form() | booking_id: Integer.to_string(to_int(id_str))}
+
+    {:noreply,
+     socket
+     |> assign(selected_booking: nil, selected_booking_tasks: [], more_menu_open: false)
+     |> assign(task_drawer: %{mode: :new, id: nil, form: form, error: nil, booking_query: ""},
+               task_menu_open: false)}
   end
 
   def handle_event("edit_task", _, %{assigns: %{task_drawer: %{mode: :view, id: id}}} = socket) do
@@ -321,7 +341,7 @@ defmodule HospexWeb.DashboardLive do
           booking_id:  (if t.booking_id, do: Integer.to_string(t.booking_id), else: "")
         }
 
-        {:noreply, assign(socket, :task_drawer, %{mode: :edit, id: id, form: form, error: nil})}
+        {:noreply, assign(socket, :task_drawer, %{mode: :edit, id: id, form: form, error: nil, booking_query: ""})}
     end
   end
 
@@ -334,12 +354,34 @@ defmodule HospexWeb.DashboardLive do
       |> maybe_put_str(params, "description")
       |> maybe_put_str(params, "priority")
       |> maybe_put_str(params, "due_on")
-      |> maybe_put_str(params, "booking_id")
 
     {:noreply, assign(socket, :task_drawer, %{drawer | form: form})}
   end
 
   def handle_event("task_form_change", _, socket), do: {:noreply, socket}
+
+  # ── Task form: searchable booking picker ──────────────────────
+
+  def handle_event("task_booking_search", %{"value" => q}, %{assigns: %{task_drawer: drawer}} = socket)
+      when not is_nil(drawer) do
+    {:noreply, assign(socket, :task_drawer, Map.put(drawer, :booking_query, q))}
+  end
+
+  def handle_event("task_booking_search", _, socket), do: {:noreply, socket}
+
+  def handle_event("task_pick_booking", %{"id" => id_str}, %{assigns: %{task_drawer: %{form: form} = drawer}} = socket) do
+    form = %{form | booking_id: id_str}
+    {:noreply, assign(socket, :task_drawer, %{drawer | form: form, booking_query: ""})}
+  end
+
+  def handle_event("task_pick_booking", _, socket), do: {:noreply, socket}
+
+  def handle_event("task_clear_booking", _, %{assigns: %{task_drawer: %{form: form} = drawer}} = socket) do
+    form = %{form | booking_id: ""}
+    {:noreply, assign(socket, :task_drawer, %{drawer | form: form, booking_query: ""})}
+  end
+
+  def handle_event("task_clear_booking", _, socket), do: {:noreply, socket}
 
   def handle_event("save_task", _, %{assigns: %{task_drawer: %{mode: mode, form: form} = drawer}} = socket)
       when mode in [:new, :edit] do
@@ -443,6 +485,22 @@ defmodule HospexWeb.DashboardLive do
     # notes_draft, expanded_stays.
     |> refresh_selected_booking()
     |> refresh_task_drawer()
+    |> assign_selected_booking_tasks()
+  end
+
+  # Keep @selected_booking_tasks in sync with the open booking + @tasks.
+  # Filters the already-loaded @tasks list rather than re-querying.
+  defp assign_selected_booking_tasks(socket) do
+    tasks =
+      case socket.assigns.selected_booking do
+        %{booking: %{id: id}} ->
+          Enum.filter(socket.assigns.tasks, &(&1.booking_id == id))
+
+        _ ->
+          []
+      end
+
+    assign(socket, :selected_booking_tasks, tasks)
   end
 
   # ── Arrivals / Departures ─────────────────────────────────
@@ -634,6 +692,20 @@ defmodule HospexWeb.DashboardLive do
       nil -> nil
       b -> "#{b.ref} · #{b.lead_guest}"
     end
+  end
+
+  # Case-insensitive match on ref OR lead_guest; first 8 hits.
+  defp booking_search(_bookings, query) when query in [nil, ""], do: []
+
+  defp booking_search(bookings, query) do
+    q = String.downcase(String.trim(query))
+
+    bookings
+    |> Enum.filter(fn b ->
+      String.contains?(String.downcase(b.ref || ""), q) or
+        String.contains?(String.downcase(b.lead_guest || ""), q)
+    end)
+    |> Enum.take(8)
   end
 
   defp parse_booking_id(nil), do: nil
