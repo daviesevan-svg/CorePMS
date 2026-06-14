@@ -102,7 +102,7 @@
 
 /* ── 2-col / 3-col grids ───────────────────────────────── */
 .grid-2 { display: grid; grid-template-columns: 2fr 1fr; gap: 14px; }
-.grid-3 { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 14px; }
+.grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
 
 /* ── List rows ──────────────────────────────────────────── */
 .dashboard .list { display: flex; flex-direction: column; }
@@ -196,7 +196,9 @@
 .empty { padding: 30px 18px; text-align: center; color: var(--ink-3); font-size: 12.5px; }
 
 /* ── Activity feed ──────────────────────────────────────── */
-.activity { display: flex; flex-direction: column; max-height: 560px; overflow-y: auto; }
+.dashboard > .card { flex-shrink: 0; }
+.activity { display: flex; flex-direction: column; min-height: 360px; max-height: 560px; overflow-y: auto; }
+.activity .empty { margin: auto 0; }
 .act-row {
   display: flex; align-items: flex-start; gap: 11px;
   padding: 11px 18px; border-top: 1px solid var(--line);
@@ -367,3 +369,30 @@
 .channel-dot.AB { background: #ff5a5f; }
 .channel-dot.EX { background: #fdd535; color: #003a8a; }
 .channel-dot.DR { background: var(--accent); }
+
+/* ── Tasks widget ──────────────────────────────────────────── */
+.task-row {
+  display: flex; align-items: center; gap: 11px;
+  padding: 11px 18px; border-bottom: 1px solid var(--line);
+}
+.task-row:last-child { border-bottom: none; }
+.task-check {
+  width: 17px; height: 17px; flex-shrink: 0; border-radius: 5px;
+  border: 1.5px solid var(--line-strong, var(--ink-4));
+  display: grid; place-items: center; color: #fff;
+}
+.task-check svg { width: 11px; height: 11px; }
+.task-row[data-done="true"] .task-check { background: var(--paid-bar); border-color: var(--paid-bar); }
+.task-row[data-done="true"] .row-title { color: var(--ink-3); text-decoration: line-through; }
+.task-pri {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; font-weight: 500; color: var(--ink-3);
+}
+.task-pri .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-4); }
+.task-pri.high .dot { background: var(--unpaid-bar); }
+.task-pri.med  .dot { background: var(--partial-bar); }
+.task-pri.low  .dot { background: var(--paid-bar); }
+.task-due {
+  font-size: 11px; color: var(--ink-4); flex-shrink: 0;
+  font-family: 'Geist Mono', monospace; font-variant-numeric: tabular-nums;
+}
