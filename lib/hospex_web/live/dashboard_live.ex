@@ -1,6 +1,8 @@
 defmodule HospexWeb.DashboardLive do
   use HospexWeb, :live_view
 
+  import HospexWeb.BookingDrawerComponents
+
   alias Hospex.Content.BookingDetails
   alias Hospex.Bookings
 
@@ -10,6 +12,25 @@ defmodule HospexWeb.DashboardLive do
   @impl true
   def mount(_params, _session, socket) do
     if connected?(socket), do: Bookings.subscribe()
+
+    # Drawer / wizard / modal UI state — set ONCE so PubSub-driven
+    # load_dashboard/1 refreshes don't wipe an open drawer.
+    socket =
+      assign(socket,
+        selected_booking:    nil,
+        drawer_tab:          "details",
+        expanded_stays:      MapSet.new(),
+        rate_breakdown_open: MapSet.new(),
+        notes_draft:         nil,
+        block_edit:          %{},
+        more_menu_open:      false,
+        focused_stay_id:     nil,
+        txn_form:            nil,
+        checkin_wizard:      nil,
+        arrival_menu:        nil,
+        action_flash:        nil
+      )
+
     {:ok, load_dashboard(socket)}
   end
 
@@ -18,16 +39,280 @@ defmodule HospexWeb.DashboardLive do
     {:noreply, load_dashboard(socket)}
   end
 
+  # ── Arrival quick-menu ────────────────────────────────────────
+
+  @impl true
+  def handle_event("toggle_arrival_menu", %{"id" => id_str}, socket) do
+    id = to_int(id_str)
+    next = if socket.assigns.arrival_menu == id, do: nil, else: id
+    {:noreply, assign(socket, :arrival_menu, next)}
+  end
+
+  def handle_event("close_arrival_menu", _, socket) do
+    {:noreply, assign(socket, :arrival_menu, nil)}
+  end
+
+  # ── Booking drawer ────────────────────────────────────────────
+
+  def handle_event("select_booking", %{"id" => id_str}, socket) do
+    {:noreply,
+     socket
+     |> do_select_booking(to_int(id_str))
+     |> assign(:arrival_menu, nil)}
+  end
+
+  def handle_event("close_booking", _, socket) do
+    {:noreply, assign(socket, selected_booking: nil, more_menu_open: false)}
+  end
+
+  def handle_event("set_drawer_tab", %{"tab" => tab}, socket)
+      when tab in ["details", "payments", "history"] do
+    {:noreply, assign(socket, :drawer_tab, tab)}
+  end
+
+  def handle_event("toggle_stay", %{"id" => id_str}, socket) do
+    id = to_int(id_str)
+
+    expanded =
+      if MapSet.member?(socket.assigns.expanded_stays, id) do
+        MapSet.delete(socket.assigns.expanded_stays, id)
+      else
+        MapSet.put(socket.assigns.expanded_stays, id)
+      end
+
+    {:noreply, assign(socket, :expanded_stays, expanded)}
+  end
+
+  def handle_event("toggle_rate_breakdown", %{"id" => id_str}, socket) do
+    id = to_int(id_str)
+
+    open =
+      if MapSet.member?(socket.assigns.rate_breakdown_open, id) do
+        MapSet.delete(socket.assigns.rate_breakdown_open, id)
+      else
+        MapSet.put(socket.assigns.rate_breakdown_open, id)
+      end
+
+    {:noreply, assign(socket, :rate_breakdown_open, open)}
+  end
+
+  def handle_event("notes_change", %{"notes" => notes}, socket) do
+    {:noreply, assign(socket, :notes_draft, notes)}
+  end
+
+  def handle_event("save_notes", %{"notes" => notes},
+                   %{assigns: %{selected_booking: %{booking: b}}} = socket) do
+    :ok = Bookings.update_notes(b.id, notes)
+
+    {:noreply,
+     socket
+     |> assign(:notes_draft, nil)
+     |> load_dashboard()
+     |> assign(:action_flash, "✓ Notes saved")}
+  end
+
+  def handle_event("save_notes", _, socket), do: {:noreply, socket}
+
+  def handle_event("toggle_more_menu", _, socket) do
+    {:noreply, assign(socket, :more_menu_open, not socket.assigns.more_menu_open)}
+  end
+
+  def handle_event("close_more_menu", _, socket) do
+    {:noreply, assign(socket, :more_menu_open, false)}
+  end
+
+  def handle_event("cancel_booking", _, %{assigns: %{selected_booking: %{booking: b}}} = socket) do
+    :ok = Bookings.cancel_booking(b.id)
+
+    {:noreply,
+     socket
+     |> assign(selected_booking: nil, focused_stay_id: nil, more_menu_open: false,
+               action_flash: "✓ Booking #{b.ref} cancelled")
+     |> load_dashboard()}
+  end
+
+  def handle_event("cancel_booking", _, socket), do: {:noreply, socket}
+
+  # ── Transaction modal (payment / refund / charge) ─────────────
+
+  def handle_event("open_txn", %{"kind" => kind}, %{assigns: %{selected_booking: %{booking: b}}} = socket)
+      when kind in ["payment", "refund", "charge"] do
+    bal = b.total - b.paid
+
+    default_amount =
+      case kind do
+        "payment" -> max(0, bal)
+        "refund"  -> 0
+        "charge"  -> 0
+      end
+
+    {:noreply, assign(socket, :txn_form, %{
+      booking_id: b.id,
+      kind:       kind,
+      amount:     default_amount,
+      method:     "card",
+      note:       ""
+    })}
+  end
+
+  def handle_event("open_txn", _, socket), do: {:noreply, socket}
+
+  def handle_event("txn_cancel", _, socket), do: {:noreply, assign(socket, :txn_form, nil)}
+
+  def handle_event("txn_set_kind", %{"kind" => kind}, %{assigns: %{txn_form: f}} = socket)
+      when not is_nil(f) and kind in ["payment", "refund", "charge"] do
+    {:noreply, assign(socket, :txn_form, %{f | kind: kind})}
+  end
+
+  def handle_event("txn_change", params, %{assigns: %{txn_form: f}} = socket) when not is_nil(f) do
+    f =
+      f
+      |> maybe_put(params, "method")
+      |> maybe_put(params, "note")
+      |> maybe_put(params, "amount", &to_int/1)
+
+    {:noreply, assign(socket, :txn_form, f)}
+  end
+
+  def handle_event("txn_save", _, %{assigns: %{txn_form: f}} = socket) when not is_nil(f) do
+    cond do
+      f.amount <= 0 ->
+        {:noreply, assign(socket, :action_flash, "Amount must be greater than zero")}
+
+      f.kind not in ~w(payment refund charge) ->
+        {:noreply, assign(socket, :action_flash, "Unknown transaction type")}
+
+      true ->
+        result =
+          Bookings.add_transaction(f.booking_id, %{
+            kind:   String.to_existing_atom(f.kind),
+            amount: f.amount,
+            method: f.method,
+            note:   f.note
+          })
+
+        case result do
+          :ok ->
+            {:noreply,
+             socket
+             |> assign(txn_form: nil,
+                       action_flash: "✓ #{String.capitalize(f.kind)} recorded · #{format_money(f.amount)}")
+             |> load_dashboard()}
+
+          {:error, :refund_exceeds_paid} ->
+            {:noreply, assign(socket, :action_flash, "Refund exceeds the amount paid")}
+
+          {:error, _} ->
+            {:noreply, assign(socket, :action_flash, "Could not record transaction")}
+        end
+    end
+  end
+
+  # ── Check-in wizard ───────────────────────────────────────────
+
+  def handle_event("start_checkin", %{"id" => id_str}, socket) do
+    stay_id = to_int(id_str)
+    stay    = Enum.find(socket.assigns.all_stays, &(&1.id == stay_id))
+
+    if stay do
+      details = BookingDetails.details_for(
+        Enum.find(socket.assigns.all_bookings, &(&1.id == stay.booking_id))
+      )
+
+      wizard = %{
+        stay_id: stay_id,
+        step:    1,
+        guest:   stay.guest_name,
+        total:   stay.total,
+        paid:    stay.paid,
+        balance: stay.total - stay.paid,
+        data: %{
+          doc_type:       "passport",
+          doc_number:     "",
+          doc_country:    details.country_code,
+          doc_uploaded:   false,
+          email:          details.email,
+          phone:          details.phone,
+          email_consent:  true,
+          payment_method: "card",
+          payment_amount: stay.total - stay.paid,
+          skip_payment:   false
+        }
+      }
+
+      {:noreply, assign(socket, checkin_wizard: wizard, arrival_menu: nil)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_event("wizard_back", _, %{assigns: %{checkin_wizard: w}} = socket) when not is_nil(w) do
+    {:noreply, assign(socket, :checkin_wizard, %{w | step: max(1, w.step - 1)})}
+  end
+
+  def handle_event("wizard_next", _, %{assigns: %{checkin_wizard: w}} = socket) when not is_nil(w) do
+    {:noreply, assign(socket, :checkin_wizard, %{w | step: min(3, w.step + 1)})}
+  end
+
+  def handle_event("wizard_cancel", _, socket) do
+    {:noreply, assign(socket, :checkin_wizard, nil)}
+  end
+
+  def handle_event("wizard_change", params, %{assigns: %{checkin_wizard: w}} = socket) when not is_nil(w) do
+    data =
+      w.data
+      |> maybe_put(params, "doc_type")
+      |> maybe_put(params, "doc_number")
+      |> maybe_put(params, "doc_country")
+      |> maybe_put(params, "email")
+      |> maybe_put(params, "phone")
+      |> maybe_put(params, "payment_method")
+      |> maybe_put(params, "payment_amount", &to_int/1)
+
+    {:noreply, assign(socket, :checkin_wizard, %{w | data: data})}
+  end
+
+  def handle_event("wizard_toggle", %{"field" => field}, %{assigns: %{checkin_wizard: w}} = socket) when not is_nil(w) do
+    key     = String.to_existing_atom(field)
+    current = Map.get(w.data, key, false)
+    {:noreply, assign(socket, :checkin_wizard, %{w | data: Map.put(w.data, key, not current)})}
+  end
+
+  def handle_event("wizard_upload_sim", _, %{assigns: %{checkin_wizard: w}} = socket) when not is_nil(w) do
+    {:noreply, assign(socket, :checkin_wizard, %{w | data: %{w.data | doc_uploaded: true}})}
+  end
+
+  def handle_event("wizard_complete", _, %{assigns: %{checkin_wizard: w}} = socket) when not is_nil(w) do
+    socket =
+      socket
+      |> apply_wizard_payment(w)
+      |> update_stay_status(w.stay_id, :in)
+      |> assign(checkin_wizard: nil, action_flash: "✓ Checked in #{w.guest}")
+
+    {:noreply, socket}
+  end
+
+  def handle_event("dismiss_flash", _, socket) do
+    {:noreply, assign(socket, :action_flash, nil)}
+  end
+
   defp load_dashboard(socket) do
     today = Date.utc_today()
-    {_room_groups, _bookings, stays} = Bookings.load_calendar()
+    {room_groups, bookings, stays} = Bookings.load_calendar()
+    all_rooms = Enum.flat_map(room_groups, & &1.rooms)
 
     socket
     |> assign(today: today, date_label: date_label(today))
+    |> assign(all_bookings: bookings, all_stays: stays,
+              room_groups: room_groups, all_rooms: all_rooms)
     |> assign(:arrivals,   arrivals(stays, today))
     |> assign(:departures, departures(stays, today))
     |> assign(:activity,   activity_feed())
     |> assign(:tasks,      tasks())
+    # Re-derive the open drawer from fresh data (post-mutation refresh);
+    # leaves it nil when no drawer is open. Does NOT touch drawer_tab,
+    # notes_draft, expanded_stays.
+    |> refresh_selected_booking()
   end
 
   # ── Arrivals / Departures ─────────────────────────────────
@@ -56,7 +341,7 @@ defmodule HospexWeb.DashboardLive do
       eta = Enum.at(@arrival_etas, rem(av.hash, length(@arrival_etas)))
       {pay, pay_label} = payment_state(s)
       %{
-        id: s.id, name: s.guest_name, room: room_num(s.room_id),
+        id: s.id, booking_id: s.booking_id, name: s.guest_name, room: room_num(s.room_id),
         adults: s.adults, kids: s.kids, nights: s.nights,
         eta: eta, status: arrival_status(s),
         pay: pay, pay_label: pay_label, balance: s.total - s.paid,
@@ -225,4 +510,212 @@ defmodule HospexWeb.DashboardLive do
   end
 
   def raw_html(html) when is_binary(html), do: Phoenix.HTML.raw(html)
+
+  # ── Drawer selection / refresh (ported from CalendarLive) ─────
+
+  # Build the selected_booking view from a stay id. Preserves in-progress
+  # UI state (drawer_tab / expanded_stays / notes_draft) on same-booking
+  # refreshes; clears it when switching to a different booking.
+  defp do_select_booking(socket, stay_id) do
+    stay    = Enum.find(socket.assigns.all_stays, &(&1.id == stay_id))
+    booking = stay && Enum.find(socket.assigns.all_bookings, &(&1.id == stay.booking_id))
+
+    same_booking? =
+      case {booking, socket.assigns.selected_booking} do
+        {%{id: id}, %{booking: %{id: id}}} -> true
+        _ -> false
+      end
+
+    selected =
+      if booking do
+        today       = socket.assigns.today
+        rooms_by_id = Map.new(socket.assigns.all_rooms, &{&1.id, &1})
+
+        group_by_room =
+          for g <- socket.assigns.room_groups, r <- g.rooms, into: %{}, do: {r.id, g}
+
+        details = BookingDetails.details_for(booking)
+
+        room_rows =
+          for s <- booking.stays do
+            %{
+              stay:      s,
+              room:      Map.get(rooms_by_id, s.room_id),
+              group:     Map.get(group_by_room, s.room_id),
+              check_out: Date.add(s.check_in, s.nights),
+              subtotal:  s.nights * details.rate_per_night
+            }
+          end
+
+        %{
+          booking:    booking,
+          rooms:      room_rows,
+          multi_room: length(booking.stays) > 1,
+          details:    details,
+          txns:       merge_txns(BookingDetails.txns_for(booking, today), booking),
+          events:     real_events(booking, today)
+        }
+      else
+        nil
+      end
+
+    expanded =
+      if selected && selected.multi_room do
+        MapSet.new([stay_id])
+      else
+        case selected do
+          %{rooms: [only]} -> MapSet.new([only.stay.id])
+          _ -> MapSet.new()
+        end
+      end
+
+    assign(socket,
+      selected_booking: selected,
+      drawer_tab:       (if same_booking?, do: socket.assigns.drawer_tab, else: "details"),
+      focused_stay_id:  stay_id,
+      expanded_stays:   (if same_booking?, do: socket.assigns.expanded_stays, else: expanded),
+      block_edit:       (if same_booking?, do: socket.assigns.block_edit, else: %{}),
+      notes_draft:      (if same_booking?, do: socket.assigns.notes_draft, else: nil)
+    )
+  end
+
+  # If a drawer is open, re-derive it from the fresh all_bookings/all_stays
+  # so post-mutation refreshes show current data. Closes it if the booking
+  # vanished. Preserves drawer UI state via do_select_booking's same-booking
+  # branch. Leaves everything alone when no drawer is open.
+  defp refresh_selected_booking(socket) do
+    case socket.assigns.selected_booking do
+      %{booking: %{id: id}} ->
+        case Enum.find(socket.assigns.all_bookings, &(&1.id == id)) do
+          nil ->
+            assign(socket, selected_booking: nil, focused_stay_id: nil)
+
+          _booking ->
+            if socket.assigns.focused_stay_id do
+              do_select_booking(socket, socket.assigns.focused_stay_id)
+            else
+              socket
+            end
+        end
+
+      _ ->
+        socket
+    end
+  end
+
+  # ── Audit log → history event view shape ─────────────────────
+
+  defp real_events(%{events: events}, _today) when is_list(events) and events != [] do
+    events
+    |> Enum.sort_by(& &1.id, :desc)
+    |> Enum.map(&event_view/1)
+  end
+
+  defp real_events(booking, today), do: BookingDetails.events_for(booking, today)
+
+  defp event_view(e) do
+    {icon, kind} = event_chrome(e.kind)
+    %{icon: icon, kind: kind, title: e.summary, sub: fmt_event_at(e.at), by: e.by}
+  end
+
+  defp event_chrome(:booking_created),   do: {:bookmark, :accent}
+  defp event_chrome(:block_created),     do: {:bookmark, :default}
+  defp event_chrome(:booking_edited),    do: {:pencil,   :default}
+  defp event_chrome(:stay_edited),       do: {:pencil,   :default}
+  defp event_chrome(:booking_cancelled), do: {:login,    :default}
+  defp event_chrome(:status_changed),    do: {:login,    :default}
+  defp event_chrome(:stay_moved),        do: {:pencil,   :default}
+  defp event_chrome(:room_added),        do: {:bookmark, :default}
+  defp event_chrome(:payment),           do: {:cash,     :success}
+  defp event_chrome(:payment_recorded),  do: {:cash,     :success}
+  defp event_chrome(:refund),            do: {:cash,     :default}
+  defp event_chrome(:charge),            do: {:card,     :default}
+  defp event_chrome(:notes_updated),     do: {:message,  :default}
+  defp event_chrome(_),                  do: {:message,  :default}
+
+  defp fmt_event_at(%NaiveDateTime{} = dt), do: Calendar.strftime(dt, "%b %-d, %Y · %H:%M")
+  defp fmt_event_at(_), do: ""
+
+  # ── Transactions: merge stored ledger rows into the drawer shape ──
+
+  defp merge_txns(synthetic, booking) do
+    stored = Map.get(booking, :transactions, []) |> Enum.map(&txn_to_view/1)
+    synthetic ++ stored
+  end
+
+  defp txn_to_view(%{kind: :payment} = t) do
+    %{type: :payment, icon: icon_for_method(t.method),
+      label: payment_label(t),
+      sub: txn_sub(t),
+      amount: t.amount, date: NaiveDateTime.to_date(t.created_at)}
+  end
+
+  defp txn_to_view(%{kind: :refund} = t) do
+    %{type: :refund, icon: :refund,
+      label: refund_label(t),
+      sub: txn_sub(t),
+      amount: t.amount, date: NaiveDateTime.to_date(t.created_at)}
+  end
+
+  defp txn_to_view(%{kind: :charge} = t) do
+    %{type: :charge, icon: :receipt,
+      label: charge_label(t),
+      sub: txn_sub(t),
+      amount: t.amount, date: NaiveDateTime.to_date(t.created_at)}
+  end
+
+  defp icon_for_method("card"),     do: :card
+  defp icon_for_method("cash"),     do: :cash
+  defp icon_for_method("transfer"), do: :card
+  defp icon_for_method(_),          do: :card
+
+  defp payment_label(%{note: "Imported balance"}), do: "Payment · imported balance"
+  defp payment_label(%{method: "cash"}),     do: "Cash payment"
+  defp payment_label(%{method: "transfer"}), do: "Bank transfer"
+  defp payment_label(%{method: nil}),        do: "Payment"
+  defp payment_label(%{method: _}),          do: "Card payment"
+
+  defp refund_label(%{note: ""}),   do: "Refund"
+  defp refund_label(%{note: note}), do: "Refund · #{note}"
+
+  defp charge_label(%{note: ""}),   do: "Charge"
+  defp charge_label(%{note: note}), do: note
+
+  defp txn_sub(t), do: "Recorded #{Calendar.strftime(t.created_at, "%b %-d · %H:%M")}"
+
+  # ── Check-in side effects ─────────────────────────────────────
+
+  defp apply_wizard_payment(socket, %{data: %{skip_payment: true}}), do: socket
+
+  defp apply_wizard_payment(socket, %{stay_id: stay_id, data: %{payment_amount: amt}}) when amt > 0 do
+    stay = Enum.find(socket.assigns.all_stays, &(&1.id == stay_id))
+    if stay, do: Bookings.apply_payment(stay.booking_id, amt)
+    load_dashboard(socket)
+  end
+
+  defp apply_wizard_payment(socket, _), do: socket
+
+  defp update_stay_status(socket, stay_id, new_status) do
+    Bookings.update_stay_status(stay_id, new_status)
+    load_dashboard(socket)
+  end
+
+  # ── Param coercion (client input is never trusted) ────────────
+
+  defp maybe_put(map, params, key, transform \\ & &1) do
+    case Map.fetch(params, key) do
+      {:ok, v} -> Map.put(map, String.to_existing_atom(key), transform.(v))
+      :error   -> map
+    end
+  end
+
+  defp to_int(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {n, _rest} -> n
+      :error     -> 0
+    end
+  end
+
+  defp to_int(value) when is_integer(value), do: value
+  defp to_int(_), do: 0
 end

@@ -115,6 +115,18 @@
 .list-row:first-child { border-top: 0; }
 .list-row.compact { padding: 9px 18px; }
 
+/* Arrival rows are click targets that open a small action menu.
+   Padding moves onto the inner button so the whole row is clickable. */
+.arrival-row { position: relative; padding: 0; }
+.arrival-row:hover { background: transparent; }
+.arrival-rowbtn {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  border: 0; background: transparent; font: inherit; text-align: left;
+  cursor: pointer; padding: 11px 18px; color: inherit; min-width: 0;
+}
+.arrival-rowbtn:hover { background: oklch(98.5% 0.003 250); }
+.arrival-menu { position: absolute; top: 100%; right: 12px; z-index: 30; }
+
 .avatar {
   width: 30px; height: 30px; border-radius: 50%; flex-shrink: 0;
   display: grid; place-items: center;
