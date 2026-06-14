@@ -709,6 +709,17 @@ defmodule HospexWeb.BookingDrawerComponents do
                   </div>
               <% end %>
 
+              <%!-- Check-in details (read-only record captured by the wizard) --%>
+              <%= if not is_hold and b.checkin_details not in [nil, ""] do %>
+                <div class="dr-sect">
+                  <div class="dr-sect-head">
+                    <div class="dr-sect-title">Check-in details</div>
+                    <span class="dr-sect-hint" style="margin-top:0;font-style:italic">Captured at check-in</span>
+                  </div>
+                  <div class="dr-checkin-details"><%= b.checkin_details %></div>
+                </div>
+              <% end %>
+
               <%!-- Booking source --%>
               <%= if not is_hold do %>
                 <div class="dr-sect">

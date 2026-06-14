@@ -147,6 +147,65 @@ defmodule HospexWeb.CheckinWizard do
     end
   end
 
+  @doc """
+  A multi-line, human-readable record of everything captured at check-in —
+  built-in confirmations (document, contact, payment) for the enabled steps,
+  plus every answered custom question. Stored on the booking for later reading.
+  Returns nil if nothing was collected.
+  """
+  def details_text(%{steps: steps} = w) do
+    lines = Enum.flat_map(steps, &step_lines(&1, w))
+
+    case Enum.reject(lines, &(&1 in [nil, ""])) do
+      [] -> nil
+      list -> Enum.join(list, "\n")
+    end
+  end
+
+  defp step_lines(%{"kind" => "builtin", "builtin" => "identity"} = s, %{data: d}) do
+    if field_on?(s, "doc_type") or field_on?(s, "doc_number") do
+      num = if d.doc_number in [nil, ""], do: "—", else: d.doc_number
+      country = if d.doc_country in [nil, ""], do: "", else: " (#{d.doc_country})"
+      ["Document: #{d.doc_type} · #{num}#{country}"]
+    else
+      []
+    end
+  end
+
+  defp step_lines(%{"kind" => "builtin", "builtin" => "contact"} = s, %{data: d}) do
+    [
+      field_on?(s, "email") && d.email not in [nil, ""] && "Email: #{d.email}",
+      field_on?(s, "phone") && d.phone not in [nil, ""] && "Phone: #{d.phone}"
+    ]
+    |> Enum.filter(&is_binary/1)
+  end
+
+  defp step_lines(%{"kind" => "builtin", "builtin" => "payment"} = s, w) do
+    d = w.data
+
+    cond do
+      not field_on?(s, "collect_payment") -> []
+      w.balance <= 0 -> ["Payment: balance settled"]
+      d.skip_payment -> ["Payment: skipped (collect later)"]
+      d.payment_amount > 0 -> ["Payment: #{d.payment_method} · €#{d.payment_amount}"]
+      true -> []
+    end
+  end
+
+  defp step_lines(%{"kind" => "custom"} = s, %{answers: answers}) do
+    (s["questions"] || [])
+    |> Enum.flat_map(fn q -> [q | (if reveal_children?(q, answers), do: q["children"] || [], else: [])] end)
+    |> Enum.map(fn q ->
+      case Map.get(answers, q["id"]) do
+        v when v in [nil, ""] -> nil
+        v -> "#{q["label"]}: #{v}"
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp step_lines(_, _), do: []
+
   # ── Default config (fallback when checkin.yaml is absent) ─────
 
   defp default_steps do

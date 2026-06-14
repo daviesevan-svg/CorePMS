@@ -1790,9 +1790,9 @@ defmodule HospexWeb.CalendarLive do
     if CheckinWizard.payment_step?(w), do: apply_wizard_payment(w, socket.assigns.all_stays)
     Bookings.update_stay_status(w.stay_id, :in)
 
-    case CheckinWizard.answers_summary(w) do
+    case CheckinWizard.details_text(w) do
       nil -> :ok
-      summary -> Bookings.record_checkin(w.stay_id, summary)
+      details -> Bookings.record_checkin(w.stay_id, CheckinWizard.answers_summary(w) || "Check-in completed", details)
     end
 
     reload_bookings(socket)

@@ -899,6 +899,11 @@ button { font-family: inherit; color: inherit; }
   padding: 14px; text-align: center;
 }
 .dr-empty.dashed { border: 1px dashed var(--line); border-radius: 10px; }
+.dr-checkin-details {
+  white-space: pre-wrap; font-size: 12.5px; line-height: 1.5; color: var(--ink-2);
+  background: var(--bg-sunk); border: 1px solid var(--line); border-radius: 10px;
+  padding: 12px 14px;
+}
 
 .dr-notes {
   width: 100%; min-height: 64px; resize: vertical;
