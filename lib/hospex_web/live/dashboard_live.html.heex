@@ -148,6 +148,7 @@
         <div class="card-head">
           <div class="card-title">Tasks</div>
           <span class="card-count"><%= Enum.count(@tasks, &(not &1.done)) %> open</span>
+          <button class="card-action task-new-btn" phx-click="new_task">+ New</button>
         </div>
         <div class="card-body">
           <div class="list">
@@ -156,14 +157,22 @@
             <% else %>
               <%= for t <- @tasks do %>
                 <div class="task-row" data-done={to_string(t.done)}>
-                  <span class="task-check"><%= if t.done do %><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3.5 8.5 3 3 6-7"/></svg><% end %></span>
-                  <div class="row-body">
-                    <div class="row-title"><%= t.text %></div>
-                    <div class="row-sub">
-                      <span class={"task-pri #{t.priority}"}><span class="dot"></span><%= task_pri_label(t.priority) %></span>
+                  <button
+                    type="button"
+                    class="task-check"
+                    title={if t.done, do: "Reopen task", else: "Mark complete"}
+                    phx-click="toggle_task_done"
+                    phx-value-id={t.id}
+                  ><%= if t.done do %><svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3.5 8.5 3 3 6-7"/></svg><% end %></button>
+                  <button type="button" class="task-open" phx-click="open_task" phx-value-id={t.id}>
+                    <div class="row-body">
+                      <div class="row-title"><%= t.title %></div>
+                      <div class="row-sub">
+                        <span class={"task-pri #{t.priority}"}><span class="dot"></span><%= task_pri_label(t.priority) %></span>
+                      </div>
                     </div>
-                  </div>
-                  <div class="task-due"><%= t.due %></div>
+                    <div class="task-due"><%= due_label(t.due_on) %></div>
+                  </button>
                 </div>
               <% end %>
             <% end %>
@@ -204,4 +213,130 @@
   <.booking_drawer selected_booking={@selected_booking} drawer_tab={@drawer_tab} expanded_stays={@expanded_stays} rate_breakdown_open={@rate_breakdown_open} notes_draft={@notes_draft} block_edit={@block_edit} more_menu_open={@more_menu_open} focused_stay_id={@focused_stay_id} editable={false} back_label="Dashboard" />
   <.checkin_wizard wizard={@checkin_wizard} />
   <.txn_modal txn_form={@txn_form} />
+
+  <%!-- ── Task drawer ──────────────────────────────────────────── --%>
+  <div id="task-scrim" class="drawer-scrim" data-open={if @task_drawer, do: "1", else: "0"} phx-click="close_task"></div>
+  <div id="task-drawer" class="drawer task-drawer" data-open={if @task_drawer, do: "1", else: "0"} role="dialog" aria-modal="true" phx-window-keydown="close_task" phx-key="Escape">
+    <%= case @task_drawer do %>
+      <% %{mode: :view, id: _id} = drawer -> %>
+        <% t = drawer_task(drawer) %>
+        <%= if t do %>
+          <div class="dr-toolbar">
+            <button class="dr-back" phx-click="close_task">
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5 5.5 8 10 12.5"/></svg>
+              Dashboard
+            </button>
+            <div class="dr-tool-right">
+              <button class="dr-pill-btn" phx-click="edit_task">
+                <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.5 13.5 4 5 12.5 2.5 13.5 3.5 11Z"/></svg>
+                Edit
+              </button>
+              <button class="dr-icon" title="Close" phx-click="close_task">
+                <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="dr-hero">
+            <div class="task-dr-pills">
+              <span class="status-pill" data-done={to_string(t.done)}>
+                <span class="dot"></span><%= if t.done, do: "Done", else: "Open" %>
+              </span>
+              <span class={"task-pri #{t.priority}"}><span class="dot"></span><%= task_pri_label(t.priority) %></span>
+              <span class="task-dr-due"><%= due_label(t.due_on) %></span>
+            </div>
+            <div class="task-dr-title"><%= t.title %></div>
+          </div>
+
+          <div class="dr-body">
+            <div class="task-dr-section">
+              <div class="task-dr-label">Description</div>
+              <div class="task-dr-desc"><%= if t.description && t.description != "", do: t.description, else: "No description" %></div>
+            </div>
+
+            <%= if t.done do %>
+              <div class="task-dr-section">
+                <div class="task-dr-label">Completion note</div>
+                <div class="task-dr-desc"><%= if t.completion_note && t.completion_note != "", do: t.completion_note, else: "—" %></div>
+                <%= if t.completed_at do %>
+                  <div class="task-dr-meta">Completed <%= Calendar.strftime(t.completed_at, "%b %-d, %Y · %H:%M") %></div>
+                <% end %>
+              </div>
+            <% end %>
+          </div>
+
+          <div class="task-dr-foot">
+            <%= if t.done do %>
+              <button class="row-action" phx-click="reopen_task" phx-value-id={t.id}>Reopen</button>
+            <% else %>
+              <%= if drawer.completing do %>
+                <form class="task-complete-form" phx-change="complete_note_change" phx-submit="complete_task">
+                  <textarea name="note" class="task-textarea" placeholder="Optional note…" phx-debounce="200"><%= drawer.note_draft %></textarea>
+                  <div class="task-dr-actions">
+                    <button type="submit" class="row-action primary">Confirm complete</button>
+                  </div>
+                </form>
+              <% else %>
+                <button class="row-action primary" phx-click="start_complete_task">Mark complete</button>
+              <% end %>
+            <% end %>
+            <button class="row-action danger" phx-click="delete_task" phx-value-id={t.id} data-confirm="Delete this task? This can't be undone.">Delete</button>
+          </div>
+        <% end %>
+
+      <% %{mode: mode, form: form} = drawer when mode in [:new, :edit] -> %>
+        <div class="dr-toolbar">
+          <button class="dr-back" phx-click={if mode == :edit, do: "open_task", else: "close_task"} phx-value-id={drawer.id}>
+            <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5 5.5 8 10 12.5"/></svg>
+            <%= if mode == :edit, do: "Cancel", else: "Dashboard" %>
+          </button>
+          <div class="dr-tool-right">
+            <button class="dr-icon" title="Close" phx-click="close_task">
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="dr-hero">
+          <div class="task-dr-title"><%= if mode == :edit, do: "Edit task", else: "New task" %></div>
+        </div>
+
+        <form class="task-form dr-body" phx-change="task_form_change" phx-submit="save_task">
+          <%= if drawer[:error] do %>
+            <div class="task-form-error"><%= drawer.error %></div>
+          <% end %>
+
+          <label class="task-field">
+            <span class="task-field-label">Title</span>
+            <input type="text" name="title" class="task-input" value={form.title} placeholder="What needs doing?" autocomplete="off" required />
+          </label>
+
+          <label class="task-field">
+            <span class="task-field-label">Priority</span>
+            <select name="priority" class="task-input">
+              <option value="high" selected={form.priority == "high"}>High</option>
+              <option value="med"  selected={form.priority == "med"}>Medium</option>
+              <option value="low"  selected={form.priority == "low"}>Low</option>
+            </select>
+          </label>
+
+          <label class="task-field">
+            <span class="task-field-label">Due date</span>
+            <input type="date" name="due_on" class="task-input" value={form.due_on} />
+          </label>
+
+          <label class="task-field">
+            <span class="task-field-label">Description</span>
+            <textarea name="description" class="task-textarea" placeholder="Details (optional)"><%= form.description %></textarea>
+          </label>
+
+          <div class="task-dr-actions">
+            <button type="button" class="row-action" phx-click={if mode == :edit, do: "open_task", else: "close_task"} phx-value-id={drawer.id}>Cancel</button>
+            <button type="submit" class="row-action primary">Save</button>
+          </div>
+        </form>
+
+      <% _ -> %>
+    <% end %>
+  </div>
 </div>

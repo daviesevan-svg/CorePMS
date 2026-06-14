@@ -5,6 +5,7 @@ defmodule HospexWeb.DashboardLive do
 
   alias Hospex.Content.BookingDetails
   alias Hospex.Bookings
+  alias Hospex.Tasks
   alias HospexWeb.CheckinWizard
 
   @dow_short ~w(MON TUE WED THU FRI SAT SUN)
@@ -12,7 +13,10 @@ defmodule HospexWeb.DashboardLive do
 
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: Bookings.subscribe()
+    if connected?(socket) do
+      Bookings.subscribe()
+      Tasks.subscribe()
+    end
 
     # Drawer / wizard / modal UI state — set ONCE so PubSub-driven
     # load_dashboard/1 refreshes don't wipe an open drawer.
@@ -29,7 +33,9 @@ defmodule HospexWeb.DashboardLive do
         txn_form:            nil,
         checkin_wizard:      nil,
         arrival_menu:        nil,
-        action_flash:        nil
+        action_flash:        nil,
+        task_drawer:         nil,
+        task_menu_open:      false
       )
 
     {:ok, load_dashboard(socket)}
@@ -37,6 +43,10 @@ defmodule HospexWeb.DashboardLive do
 
   @impl true
   def handle_info({:bookings_changed, _}, socket) do
+    {:noreply, load_dashboard(socket)}
+  end
+
+  def handle_info({:tasks_changed, _}, socket) do
     {:noreply, load_dashboard(socket)}
   end
 
@@ -267,6 +277,135 @@ defmodule HospexWeb.DashboardLive do
     {:noreply, assign(socket, :action_flash, nil)}
   end
 
+  # ── Tasks: drawer + CRUD ──────────────────────────────────────
+
+  def handle_event("open_task", %{"id" => id_str}, socket) do
+    {:noreply, assign(socket, :task_drawer, %{mode: :view, id: to_int(id_str), completing: false, note_draft: ""})}
+  end
+
+  def handle_event("close_task", _, socket) do
+    {:noreply, assign(socket, task_drawer: nil, task_menu_open: false)}
+  end
+
+  def handle_event("new_task", _, socket) do
+    {:noreply, assign(socket,
+      task_drawer: %{mode: :new, id: nil, form: blank_task_form(), error: nil},
+      task_menu_open: false)}
+  end
+
+  def handle_event("edit_task", _, %{assigns: %{task_drawer: %{mode: :view, id: id}}} = socket) do
+    case Tasks.get_task(id) do
+      nil -> {:noreply, assign(socket, :task_drawer, nil)}
+      t ->
+        form = %{
+          title:       t.title || "",
+          description: t.description || "",
+          priority:    t.priority,
+          due_on:      (if t.due_on, do: Date.to_iso8601(t.due_on), else: "")
+        }
+
+        {:noreply, assign(socket, :task_drawer, %{mode: :edit, id: id, form: form, error: nil})}
+    end
+  end
+
+  def handle_event("edit_task", _, socket), do: {:noreply, socket}
+
+  def handle_event("task_form_change", params, %{assigns: %{task_drawer: %{form: form} = drawer}} = socket) do
+    form =
+      form
+      |> maybe_put_str(params, "title")
+      |> maybe_put_str(params, "description")
+      |> maybe_put_str(params, "priority")
+      |> maybe_put_str(params, "due_on")
+
+    {:noreply, assign(socket, :task_drawer, %{drawer | form: form})}
+  end
+
+  def handle_event("task_form_change", _, socket), do: {:noreply, socket}
+
+  def handle_event("save_task", _, %{assigns: %{task_drawer: %{mode: mode, form: form} = drawer}} = socket)
+      when mode in [:new, :edit] do
+    attrs = %{
+      title:       String.trim(form.title || ""),
+      description: nilify(form.description),
+      priority:    form.priority,
+      due_on:      parse_date(form.due_on)
+    }
+
+    result =
+      case mode do
+        :new  -> Tasks.create_task(attrs)
+        :edit -> Tasks.update_task(drawer.id, attrs)
+      end
+
+    case result do
+      {:ok, task} ->
+        # Return to the view drawer for the saved task.
+        {:noreply,
+         socket
+         |> assign(:task_drawer, %{mode: :view, id: task.id, completing: false, note_draft: ""})
+         |> assign(:action_flash, "✓ Task saved")
+         |> load_dashboard()}
+
+      {:error, %Ecto.Changeset{} = cs} ->
+        {:noreply, assign(socket, :task_drawer, %{drawer | error: changeset_error(cs)})}
+
+      {:error, _} ->
+        {:noreply, assign(socket, :task_drawer, %{drawer | error: "Could not save task"})}
+    end
+  end
+
+  def handle_event("save_task", _, socket), do: {:noreply, socket}
+
+  def handle_event("toggle_task_done", %{"id" => id_str}, socket) do
+    id = to_int(id_str)
+
+    case Tasks.get_task(id) do
+      nil -> {:noreply, socket}
+      %{done: true} -> Tasks.reopen_task(id); {:noreply, load_dashboard(socket)}
+      %{done: false} -> Tasks.complete_task(id, nil); {:noreply, load_dashboard(socket)}
+    end
+  end
+
+  def handle_event("start_complete_task", _, %{assigns: %{task_drawer: %{mode: :view} = drawer}} = socket) do
+    {:noreply, assign(socket, :task_drawer, %{drawer | completing: true, note_draft: ""})}
+  end
+
+  def handle_event("start_complete_task", _, socket), do: {:noreply, socket}
+
+  def handle_event("complete_note_change", %{"note" => note}, %{assigns: %{task_drawer: %{mode: :view} = drawer}} = socket) do
+    {:noreply, assign(socket, :task_drawer, %{drawer | note_draft: note})}
+  end
+
+  def handle_event("complete_note_change", _, socket), do: {:noreply, socket}
+
+  def handle_event("complete_task", params, %{assigns: %{task_drawer: %{mode: :view, id: id} = drawer}} = socket) do
+    note = Map.get(params, "note", drawer.note_draft || "")
+    Tasks.complete_task(id, nilify(note))
+
+    {:noreply,
+     socket
+     |> assign(:task_drawer, %{drawer | completing: false, note_draft: ""})
+     |> assign(:action_flash, "✓ Task completed")
+     |> load_dashboard()}
+  end
+
+  def handle_event("complete_task", _, socket), do: {:noreply, socket}
+
+  def handle_event("reopen_task", %{"id" => id_str}, socket) do
+    Tasks.reopen_task(to_int(id_str))
+    {:noreply, assign(socket, :action_flash, "✓ Task reopened") |> load_dashboard()}
+  end
+
+  def handle_event("delete_task", %{"id" => id_str}, socket) do
+    Tasks.delete_task(to_int(id_str))
+
+    {:noreply,
+     socket
+     |> assign(task_drawer: nil, action_flash: "✓ Task deleted")
+     |> load_dashboard()}
+  end
+
   defp load_dashboard(socket) do
     today = Date.utc_today()
     {room_groups, bookings, stays} = Bookings.load_calendar()
@@ -279,11 +418,12 @@ defmodule HospexWeb.DashboardLive do
     |> assign(:arrivals,   arrivals(stays, today))
     |> assign(:departures, departures(stays, today))
     |> assign(:activity,   activity_feed())
-    |> assign(:tasks,      tasks())
+    |> assign(:tasks,      Tasks.list_tasks())
     # Re-derive the open drawer from fresh data (post-mutation refresh);
     # leaves it nil when no drawer is open. Does NOT touch drawer_tab,
     # notes_draft, expanded_stays.
     |> refresh_selected_booking()
+    |> refresh_task_drawer()
   end
 
   # ── Arrivals / Departures ─────────────────────────────────
@@ -425,17 +565,46 @@ defmodule HospexWeb.DashboardLive do
 
   defp relative_time(_, _), do: ""
 
-  # ── Tasks (dummy data for now) ────────────────────────────
+  # ── Tasks (real, Postgres-backed) ─────────────────────────
 
-  defp tasks do
-    [
-      %{done: false, priority: "high", text: "Confirm late check-out for room 207", due: "Today"},
-      %{done: false, priority: "high", text: "Process €520 refund for cancelled BK-1031", due: "Today"},
-      %{done: false, priority: "med",  text: "Restock minibar · rooms 301, 305", due: "Today"},
-      %{done: false, priority: "med",  text: "Prep welcome amenities for VIP arrival", due: "Tomorrow"},
-      %{done: true,  priority: "low",  text: "Reply to Booking.com guest review", due: "Yesterday"},
-      %{done: false, priority: "low",  text: "Schedule deep clean for room 401", due: "Fri"}
-    ]
+  # Human-friendly due label relative to today.
+  defp due_label(nil), do: "—"
+
+  defp due_label(%Date{} = due_on) do
+    today = Date.utc_today()
+    diff  = Date.diff(due_on, today)
+
+    cond do
+      diff == 0  -> "Today"
+      diff == 1  -> "Tomorrow"
+      diff == -1 -> "Yesterday"
+      diff > 1 and diff <= 6 -> Calendar.strftime(due_on, "%a")
+      true       -> Calendar.strftime(due_on, "%b %-d")
+    end
+  end
+
+  # Re-derive the open task drawer's underlying task from fresh data on a
+  # PubSub/post-mutation refresh. Only touches :view drawers (new/edit hold
+  # their own staged form, which must survive). Closes if the task vanished.
+  defp refresh_task_drawer(socket) do
+    case socket.assigns.task_drawer do
+      %{mode: :view, id: id} = drawer ->
+        case Tasks.get_task(id) do
+          nil -> assign(socket, :task_drawer, nil)
+          _   -> assign(socket, :task_drawer, drawer)
+        end
+
+      _ ->
+        socket
+    end
+  end
+
+  # Resolve the live task struct for a :view drawer (template helper).
+  defp drawer_task(%{id: id}) when not is_nil(id), do: Tasks.get_task(id)
+  defp drawer_task(_), do: nil
+
+  defp blank_task_form do
+    %{title: "", description: "", priority: "med", due_on: ""}
   end
 
   defp task_pri_label("high"), do: "High"
@@ -696,4 +865,38 @@ defmodule HospexWeb.DashboardLive do
 
   defp to_int(value) when is_integer(value), do: value
   defp to_int(_), do: 0
+
+  # Stage a string form field from params (only when present in the change).
+  defp maybe_put_str(form, params, key) do
+    case Map.fetch(params, key) do
+      {:ok, v} -> Map.put(form, String.to_existing_atom(key), v)
+      :error   -> form
+    end
+  end
+
+  defp nilify(nil), do: nil
+  defp nilify(s) when is_binary(s), do: (if String.trim(s) == "", do: nil, else: s)
+
+  # Parse an ISO date string from an <input type="date">; blank → nil.
+  defp parse_date(nil), do: nil
+  defp parse_date(""), do: nil
+
+  defp parse_date(s) when is_binary(s) do
+    case Date.from_iso8601(s) do
+      {:ok, d}  -> d
+      {:error, _} -> nil
+    end
+  end
+
+  # First changeset error rendered as a one-line message.
+  defp changeset_error(%Ecto.Changeset{} = cs) do
+    cs
+    |> Ecto.Changeset.traverse_errors(fn {msg, opts} ->
+      Enum.reduce(opts, msg, fn {k, v}, acc ->
+        String.replace(acc, "%{#{k}}", to_string(v))
+      end)
+    end)
+    |> Enum.map(fn {field, msgs} -> "#{field} #{Enum.join(msgs, ", ")}" end)
+    |> Enum.join("; ")
+  end
 end
