@@ -33,7 +33,22 @@ defmodule Hospex.Tasks do
   """
   def list_tasks do
     Repo.all(from(t in Task, select: t))
-    |> Enum.sort_by(fn t ->
+    |> sort_tasks()
+  end
+
+  @doc """
+  Tasks linked to a given booking id, in the same order as `list_tasks/0`.
+  """
+  def list_for_booking(booking_id) do
+    Repo.all(from(t in Task, where: t.booking_id == ^booking_id, select: t))
+    |> sort_tasks()
+  end
+
+  # Shared ordering: not-done first, priority high→med→low, due_on asc
+  # (nulls last), then insertion order. Used by list_tasks/0 and
+  # list_for_booking/1 so both views agree.
+  defp sort_tasks(tasks) do
+    Enum.sort_by(tasks, fn t ->
       {
         # not-done first
         (if t.done, do: 1, else: 0),

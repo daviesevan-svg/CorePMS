@@ -217,7 +217,7 @@
   </div>
 
   <%!-- ── Shared drawer / wizard / transaction modal ──────────── --%>
-  <.booking_drawer selected_booking={@selected_booking} drawer_tab={@drawer_tab} expanded_stays={@expanded_stays} rate_breakdown_open={@rate_breakdown_open} notes_draft={@notes_draft} block_edit={@block_edit} more_menu_open={@more_menu_open} focused_stay_id={@focused_stay_id} editable={false} back_label="Dashboard" />
+  <.booking_drawer selected_booking={@selected_booking} drawer_tab={@drawer_tab} expanded_stays={@expanded_stays} rate_breakdown_open={@rate_breakdown_open} notes_draft={@notes_draft} block_edit={@block_edit} more_menu_open={@more_menu_open} focused_stay_id={@focused_stay_id} editable={false} back_label="Dashboard" tasks={@selected_booking_tasks} task_actions={true} />
   <.checkin_wizard wizard={@checkin_wizard} />
   <.txn_modal txn_form={@txn_form} />
 
@@ -343,15 +343,38 @@
             <input type="date" name="due_on" class="task-input" value={form.due_on} />
           </label>
 
-          <label class="task-field">
+          <div class="task-field">
             <span class="task-field-label">Linked booking <span class="task-field-opt">optional</span></span>
-            <select name="booking_id" class="task-input">
-              <option value="" selected={form[:booking_id] in [nil, ""]}>— None —</option>
-              <%= for b <- @all_bookings do %>
-                <option value={b.id} selected={to_string(form[:booking_id]) == to_string(b.id)}><%= b.ref %> · <%= b.lead_guest %></option>
-              <% end %>
-            </select>
-          </label>
+            <%= if form[:booking_id] not in [nil, ""] do %>
+              <div class="task-booking-picked">
+                <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 9.5 9.5 6.5M7 4.5l.8-.8a2.5 2.5 0 0 1 3.5 3.5l-.8.8M9 11.5l-.8.8a2.5 2.5 0 0 1-3.5-3.5l.8-.8"/></svg>
+                <span class="task-booking-picked-label"><%= linked_booking_label(@all_bookings, parse_booking_id(form[:booking_id])) || "Booking ##{form[:booking_id]}" %></span>
+                <button type="button" class="task-booking-clear" phx-click="task_clear_booking" title="Clear">
+                  <svg viewBox="0 0 16 16" width="11" height="11" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+                </button>
+              </div>
+            <% else %>
+              <div class="task-booking-search">
+                <input type="text" name="booking_query" value={@task_drawer.booking_query}
+                       class="task-input" autocomplete="off"
+                       placeholder="Search bookings by ref or guest…"
+                       phx-keyup="task_booking_search" phx-debounce="150" />
+                <%= if @task_drawer.booking_query not in [nil, ""] do %>
+                  <div class="task-booking-results">
+                    <%= for b <- booking_search(@all_bookings, @task_drawer.booking_query) do %>
+                      <button type="button" class="task-booking-result"
+                              phx-click="task_pick_booking" phx-value-id={b.id}>
+                        <b><%= b.ref %></b> · <%= b.lead_guest %>
+                      </button>
+                    <% end %>
+                    <%= if booking_search(@all_bookings, @task_drawer.booking_query) == [] do %>
+                      <div class="task-booking-noresult">No matches</div>
+                    <% end %>
+                  </div>
+                <% end %>
+              </div>
+            <% end %>
+          </div>
 
           <label class="task-field">
             <span class="task-field-label">Description</span>
