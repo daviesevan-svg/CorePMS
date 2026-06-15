@@ -59,6 +59,6 @@ social_media:
 star_rating: 4
 tax:
   id: FR 509 213 477
-  prices_include: false
-  rate: 10
+  prices_include: true
+  rate: 20
 timezone: Europe/Paris
