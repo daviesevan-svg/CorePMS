@@ -57,4 +57,8 @@ social_media:
   facebook: "https://www.facebook.com/lepetitmadeleine"
   instagram: lepetitmadeleine_nice
 star_rating: 4
+tax:
+  id: FR 509 213 477
+  prices_include: false
+  rate: 10
 timezone: Europe/Paris

@@ -790,7 +790,7 @@ defmodule HospexWeb.BookingDrawerComponents do
                     <%= if d.cleaning > 0 do %>
                       <div class="dr-field"><span class="k">Cleaning</span><span class="v mono"><%= format_money(d.cleaning) %></span></div>
                     <% end %>
-                    <div class="dr-field"><span class="k">Tax (10%)</span><span class="v mono"><%= format_money(d.tax) %></span></div>
+                    <div class="dr-field"><span class="k">Tax (<%= d.tax_rate %>%)</span><span class="v mono"><%= format_money(d.tax) %></span></div>
                     <div class="dr-field total"><span class="k">Total</span><span class="v mono"><%= format_money(b.total) %></span></div>
                   </div>
                 </div>

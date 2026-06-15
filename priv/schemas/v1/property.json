@@ -38,6 +38,27 @@
       "$ref": "#/$defs/multilingual_text",
       "description": "Short marketing summary (1-3 sentences). Longer content belongs in content/content.yaml."
     },
+    "tax": {
+      "type": "object",
+      "description": "VAT / sales-tax configuration applied to bookings.",
+      "additionalProperties": false,
+      "properties": {
+        "rate": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "VAT / sales-tax percentage applied to room charges. The default tax rate for new bookings."
+        },
+        "id": {
+          "type": "string",
+          "description": "Tax / VAT registration identifier shown on invoices."
+        },
+        "prices_include": {
+          "type": "boolean",
+          "description": "Whether displayed prices already include tax (true) or tax is added at checkout (false)."
+        }
+      }
+    },
     "property_type": {
       "type": "string",
       "enum": [
