@@ -200,7 +200,9 @@
             <div class="empty">No recent activity</div>
           <% else %>
             <%= for ev <- @activity do %>
-              <div class="act-row">
+              <div class={"act-row#{if ev.booking_id, do: " act-clickable", else: ""}"}
+                   phx-click={ev.booking_id && "open_linked_booking"}
+                   phx-value-booking-id={ev.booking_id}>
                 <div class={"act-icon #{ev.tone}"}>
                   <%= act_icon_svg(ev.icon) %>
                 </div>
@@ -208,6 +210,9 @@
                   <div class="act-text"><%= raw_html(ev.text) %></div>
                   <div class="act-time"><%= ev.time %></div>
                 </div>
+                <%= if ev.booking_id do %>
+                  <svg class="act-go" viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3.5 10.5 8 6 12.5"/></svg>
+                <% end %>
               </div>
             <% end %>
           <% end %>

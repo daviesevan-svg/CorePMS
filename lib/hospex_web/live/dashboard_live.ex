@@ -297,6 +297,7 @@ defmodule HospexWeb.DashboardLive do
   # Jump from a task's linked booking to the booking drawer (swap drawers).
   def handle_event("open_linked_booking", %{"booking-id" => bid_str}, socket) do
     booking_id = to_int(bid_str)
+    socket = ensure_booking_loaded(socket, booking_id)
 
     case Enum.find(socket.assigns.all_stays, &(&1.booking_id == booking_id)) do
       nil ->
@@ -308,6 +309,21 @@ defmodule HospexWeb.DashboardLive do
          |> assign(:task_drawer, nil)
          |> do_select_booking(stay.id)
          |> assign_selected_booking_tasks()}
+    end
+  end
+
+  # Bookings referenced by the activity feed (or a task link) may fall outside
+  # the calendar window load — fetch and merge so the drawer can open them.
+  defp ensure_booking_loaded(socket, booking_id) do
+    if Enum.any?(socket.assigns.all_bookings, &(&1.id == booking_id)) do
+      socket
+    else
+      case Bookings.get_booking(booking_id) do
+        nil -> socket
+        b -> assign(socket,
+               all_bookings: [b | socket.assigns.all_bookings],
+               all_stays: b.stays ++ socket.assigns.all_stays)
+      end
     end
   end
 
@@ -593,7 +609,13 @@ defmodule HospexWeb.DashboardLive do
     Bookings.recent_events(12)
     |> Enum.map(fn e ->
       {icon, tone} = activity_icon(e.kind, e.summary)
-      %{icon: icon, tone: tone, text: activity_text(e), time: relative_time(e.at, now)}
+      %{
+        icon: icon,
+        tone: tone,
+        text: activity_text(e),
+        time: relative_time(e.at, now),
+        booking_id: e.booking && e.booking.id
+      }
     end)
   end
 
