@@ -663,10 +663,9 @@ defmodule HospexWeb.DashboardLive do
   defp humanize_event("booking_cancelled", _s, b), do: "#{subject(b)} · booking cancelled"
   defp humanize_event("notes_updated", _s, b), do: "Note updated · #{subject(b)}"
 
-  defp humanize_event("checkin", s, b) do
-    "#{subject(b)} checked in" <>
-      if s in ["", "Check-in completed"], do: "", else: " · " <> esc(s)
-  end
+  # The captured answers live on the booking (shown in the drawer), so the
+  # feed just notes the check-in rather than repeating every question.
+  defp humanize_event("checkin", _s, b), do: "#{subject(b)} checked in"
 
   defp humanize_event("room_added", s, b) do
     if String.contains?(s, " in ") do
