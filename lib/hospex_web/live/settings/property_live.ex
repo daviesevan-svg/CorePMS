@@ -165,19 +165,11 @@ defmodule HospexWeb.Settings.PropertyLive do
       "children"            => "allowed",
       "extra_bed"           => true,
       "extra_bed_fee"       => 25,
-      "tax_id"              => "FR 509 213 477",
-      "prices_include_tax"  => true,
-      "taxes"               => default_taxes(),
+      "tax_rate"            => to_string(get_in(data, ["tax", "rate"]) || 10),
+      "tax_id"              => get_in(data, ["tax", "id"]) || "",
+      "prices_include_tax"  => get_in(data, ["tax", "prices_include"]) || false,
       "active_desc_lang"    => "en"
     }
-  end
-
-  defp default_taxes do
-    [
-      %{id: "t1", name: "VAT",          rate: "6.00", type: "percent", apply_to: "Room rate"},
-      %{id: "t2", name: "City tax",     rate: "2.00", type: "fixed",   apply_to: "Per person, per night"},
-      %{id: "t3", name: "Tourist levy", rate: "1.00", type: "fixed",   apply_to: "Per person, per night"}
-    ]
   end
 
   # ── Dirty count ───────────────────────────────────────────────────────────
@@ -209,7 +201,7 @@ defmodule HospexWeb.Settings.PropertyLive do
               address_line1 address_line2 address_city address_postal_code
               contact_phone contact_email contact_website internal_code
               reservations_email currency timezone check_in_from check_out_by
-              cancel_days extra_bed_fee tax_id)
+              cancel_days extra_bed_fee tax_id tax_rate)
     merged = Map.merge(socket.assigns.form, Map.take(params, keys))
     {:noreply, put_form(socket, merged)}
   end
@@ -256,27 +248,6 @@ defmodule HospexWeb.Settings.PropertyLive do
 
   def handle_event("set_desc_lang", %{"code" => code}, socket) do
     {:noreply, assign(socket, form: Map.put(socket.assigns.form, "active_desc_lang", code))}
-  end
-
-  def handle_event("set_tax_type", %{"id" => id, "type" => type}, socket) do
-    taxes = Enum.map(socket.assigns.form["taxes"] || [], fn r ->
-      if r.id == id, do: %{r | type: type}, else: r
-    end)
-    {:noreply, put_form(socket, Map.put(socket.assigns.form, "taxes", taxes))}
-  end
-
-  def handle_event("remove_tax", %{"id" => id}, socket) do
-    taxes = Enum.reject(socket.assigns.form["taxes"] || [], &(&1.id == id))
-    {:noreply, put_form(socket, Map.put(socket.assigns.form, "taxes", taxes))}
-  end
-
-  def handle_event("add_tax", _, socket) do
-    new_row = %{
-      id: "t" <> Integer.to_string(System.unique_integer([:positive])),
-      name: "New tax", rate: "0.00", type: "percent", apply_to: "Room rate"
-    }
-    taxes = (socket.assigns.form["taxes"] || []) ++ [new_row]
-    {:noreply, put_form(socket, Map.put(socket.assigns.form, "taxes", taxes))}
   end
 
   def handle_event("discard", _, socket) do
@@ -460,6 +431,23 @@ defmodule HospexWeb.Settings.PropertyLive do
     |> Map.put("amenities", f["amenities"] || [])
     |> put_path(["check_in", "from"], f["check_in_from"])
     |> put_path(["check_out", "by"], f["check_out_by"])
+    |> maybe_put_in(["tax", "rate"], parse_num(f["tax_rate"]))
+    |> put_path(["tax", "id"], f["tax_id"])
+    |> Map.update("tax", %{}, &Map.put(&1, "prices_include", f["prices_include_tax"] == true))
+  end
+
+  # Like put_path but skips nil values (leaves the existing value in place).
+  defp maybe_put_in(map, _path, nil), do: map
+  defp maybe_put_in(map, path, value), do: put_path(map, path, value)
+
+  defp parse_num(nil), do: nil
+  defp parse_num(""), do: nil
+  defp parse_num(n) when is_number(n), do: n
+  defp parse_num(s) when is_binary(s) do
+    case Float.parse(s) do
+      {f, _} -> if f == Float.round(f), do: trunc(f), else: f
+      :error -> nil
+    end
   end
 
   defp blank_to_nil(nil), do: nil
@@ -533,7 +521,7 @@ defmodule HospexWeb.Settings.PropertyLive do
       <Shared.error_banner errors={@errors} />
 
       <Shared.banner>
-        Sections with the sparkle (Photos, Amenities, Policies, Taxes) are visual-only stubs for now —
+        Sections with the sparkle (Photos, Amenities, Policies) are visual-only stubs for now —
         their toggles flip the unsaved counter but are not yet persisted to YAML.
       </Shared.banner>
 
@@ -844,22 +832,23 @@ defmodule HospexWeb.Settings.PropertyLive do
 
         <!-- 8. TAXES ───────────────────────────────────────────────── -->
         <Shared.section_card id="taxes" icon={:receipt_tax} title="Taxes & fees"
-            desc="Taxes applied to each booking. Configure your tax registration and additional fees here.">
+            desc="VAT / sales tax applied to bookings. This rate is the default tax on new bookings.">
           <Shared.field_grid cols={2}>
-            <Shared.field label="Tax / VAT ID" name="tax_id" required mono
-              value={@form["tax_id"]} />
-            <div class="field">
-              <label class="field-label">Prices include tax</label>
-              <div class="tax-incl-row">
-                <Shared.toggle name="prices_include_tax" value={@form["prices_include_tax"]} />
-                <span class="lbl">
-                  <%= if @form["prices_include_tax"], do: "Tax-inclusive pricing", else: "Tax added at checkout" %>
-                </span>
-              </div>
-            </div>
+            <Shared.field label="VAT / sales tax rate (%)" name="tax_rate" type="number"
+              value={@form["tax_rate"]} min="0" max="100" step="0.5"
+              hint="Applied to room charges. The default tax rate when creating a booking." />
+            <Shared.field label="Tax / VAT ID" name="tax_id" mono
+              value={@form["tax_id"]} hint="Shown on guest invoices." />
           </Shared.field_grid>
-
-          <Shared.tax_table rows={@form["taxes"] || []} />
+          <div class="field">
+            <label class="field-label">Prices include tax</label>
+            <div class="tax-incl-row">
+              <Shared.toggle name="prices_include_tax" value={@form["prices_include_tax"]} />
+              <span class="lbl">
+                <%= if @form["prices_include_tax"], do: "Tax-inclusive pricing", else: "Tax added at checkout" %>
+              </span>
+            </div>
+          </div>
         </Shared.section_card>
 
       </form>

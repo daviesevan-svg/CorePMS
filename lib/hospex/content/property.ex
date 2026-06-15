@@ -63,6 +63,17 @@ defmodule Hospex.Content.Property do
     read_yaml(property_file())
   end
 
+  @doc """
+  The configured VAT / sales-tax percentage (the default tax rate for new
+  bookings). Falls back to 10 when not configured.
+  """
+  def tax_rate do
+    case load_property() do
+      {:ok, %{"tax" => %{"rate" => rate}}} when is_number(rate) -> rate
+      _ -> 10
+    end
+  end
+
   def save_property(map) when is_map(map) do
     path = property_file()
 

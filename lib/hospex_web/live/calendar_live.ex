@@ -3,7 +3,7 @@ defmodule HospexWeb.CalendarLive do
 
   import HospexWeb.BookingDrawerComponents
 
-  alias Hospex.Content.{BookingDetails, Pricing}
+  alias Hospex.Content.{BookingDetails, Pricing, Property}
   alias Hospex.Bookings
   alias HospexWeb.CheckinWizard
 
@@ -336,7 +336,7 @@ defmodule HospexWeb.CalendarLive do
       room_id:           stay.room_id,
       rate_night:        rate,
       cleaning_fee:      Map.get(b, :cleaning_fee) || 0,
-      tax_rate:          Map.get(b, :tax_rate) || 10,
+      tax_rate:          Map.get(b, :tax_rate) || Property.tax_rate(),
       user_touched_rate: true,
       lead_name:         b.lead_guest,
       email:             Map.get(b, :email) || "",
@@ -1225,7 +1225,7 @@ defmodule HospexWeb.CalendarLive do
       room_id:           room_id || "auto",
       rate_night:        nb_rate(Pricing.primary_plan(), type_id, start_date, 2, 0),
       cleaning_fee:      0,
-      tax_rate:          10,
+      tax_rate:          Property.tax_rate(),
       user_touched_rate: false,
       # Lead contact (the booker — applies to the whole booking).
       lead_name:         "",
