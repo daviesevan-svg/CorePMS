@@ -216,6 +216,10 @@
   padding: 11px 18px; border-top: 1px solid var(--line);
 }
 .act-row:first-child { border-top: 0; }
+.act-clickable { cursor: pointer; }
+.act-clickable:hover { background: var(--bg-sunk); }
+.act-go { flex-shrink: 0; color: var(--ink-4); align-self: center; opacity: 0; transition: opacity .12s; }
+.act-clickable:hover .act-go { opacity: 1; }
 .act-icon {
   width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0;
   display: grid; place-items: center;
