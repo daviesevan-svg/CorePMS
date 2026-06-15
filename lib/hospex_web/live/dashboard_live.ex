@@ -619,12 +619,107 @@ defmodule HospexWeb.DashboardLive do
     end
   end
 
-  # Summary is plain text; the booking ref (bolded) gives it context.
-  # Everything is HTML-escaped — act-text renders raw.
-  defp activity_text(%{booking: %{ref: ref}} = e) when is_binary(ref) and ref != "",
-    do: "<b>#{esc(ref)}</b> · #{esc(e.summary)}"
+  # Human-friendly activity line: lead with the guest (or "Room block") and
+  # describe what happened in plain language, keeping the useful specifics
+  # (amounts, dates, rooms). Falls back to the raw summary for unknown kinds.
+  # Output is trusted HTML — every dynamic value is escaped; only the `<b>`
+  # wrappers and fixed phrasing are literal.
+  defp activity_text(%{kind: kind, summary: summary, booking: b}),
+    do: humanize_event(kind, summary || "", b)
 
   defp activity_text(e), do: esc(e.summary)
+
+  defp humanize_event("booking_created", _s, b) do
+    case chan(b && b.src) do
+      nil -> "New booking · #{subject(b)}"
+      c   -> "New booking from #{c} · #{subject(b)}"
+    end
+  end
+
+  defp humanize_event("block_created", _s, b), do: "Room blocked · #{esc(ref(b))}"
+  defp humanize_event("block_release_changed", _s, b), do: "Block release updated · #{esc(ref(b))}"
+  defp humanize_event("booking_cancelled", _s, b), do: "#{subject(b)} · booking cancelled"
+  defp humanize_event("notes_updated", _s, b), do: "Note updated · #{subject(b)}"
+
+  defp humanize_event("checkin", s, b) do
+    "#{subject(b)} checked in" <>
+      if s in ["", "Check-in completed"], do: "", else: " · " <> esc(s)
+  end
+
+  defp humanize_event("room_added", s, b) do
+    if String.contains?(s, " in ") do
+      room = s |> String.split(" in ") |> List.last() |> room_num()
+      "Room #{esc(room)} added · #{subject(b)}"
+    else
+      "Room added · #{subject(b)}"
+    end
+  end
+
+  defp humanize_event("stay_rescheduled", s, b), do: "#{subject(b)} · #{humanize_reschedule(s)}"
+
+  defp humanize_event(kind, _s, b) when kind in ["booking_edited", "stay_edited"],
+    do: "#{subject(b)}’s booking edited"
+
+  defp humanize_event("status_changed", s, b) do
+    case s |> String.replace_prefix("Status changed to ", "") |> String.trim() do
+      "In"        -> "#{subject(b)} checked in"
+      "Paid"      -> "#{subject(b)} marked as paid"
+      "Cancelled" -> "#{subject(b)} · booking cancelled"
+      "Hold"      -> "#{subject(b)} put on hold"
+      _           -> "#{subject(b)} · #{esc(s)}"
+    end
+  end
+
+  defp humanize_event("payment", s, b), do: "#{subject(b)} paid #{esc(money_part(s, "Payment of "))}"
+  defp humanize_event("refund", s, b),  do: "Refunded #{esc(money_part(s, "Refund of "))} · #{subject(b)}"
+  defp humanize_event("charge", s, b),  do: "#{subject(b)} charged #{esc(money_part(s, "Charge of "))}"
+  defp humanize_event(_kind, s, b),     do: "#{subject(b)} · #{esc(s)}"
+
+  # Lead label: the guest (bold), or "Room block" for held/block bookings.
+  defp subject(nil), do: ""
+  defp subject(%{status: "hold"} = b), do: "<b>Room block</b> · #{esc(ref(b))}"
+  defp subject(%{src: "block"} = b), do: "<b>Room block</b> · #{esc(ref(b))}"
+  defp subject(%{lead_guest: g}) when is_binary(g) and g != "", do: "<b>#{esc(g)}</b>"
+  defp subject(b), do: "<b>#{esc(ref(b))}</b>"
+
+  defp ref(%{ref: r}) when is_binary(r), do: r
+  defp ref(_), do: ""
+
+  defp chan("bc"), do: "Booking.com"
+  defp chan("ab"), do: "Airbnb"
+  defp chan("ex"), do: "Expedia"
+  defp chan("ota"), do: "an OTA"
+  defp chan(_), do: nil
+
+  # "Payment of €374 (card)" → "€374 (card)"
+  defp money_part(summary, prefix), do: String.replace_prefix(summary, prefix, "")
+
+  defp humanize_reschedule(summary) do
+    parts =
+      summary
+      |> String.replace_prefix("Stay rescheduled · ", "")
+      |> String.split(" · ")
+      |> Enum.map(&reword_reschedule/1)
+
+    "stay " <> Enum.join(parts, ", ")
+  end
+
+  defp reword_reschedule("moved to room " <> room), do: "moved to room #{esc(room_num(room))}"
+  defp reword_reschedule("shifted check-in by " <> rest), do: "check-in #{day_phrase(rest)}"
+  defp reword_reschedule("shifted check-out by " <> rest), do: "check-out #{day_phrase(rest)}"
+  defp reword_reschedule(other), do: esc(other)
+
+  # "2d" → "moved 2 days later"; "-1d" → "moved 1 day earlier"
+  defp day_phrase(rest) do
+    case Integer.parse(rest) do
+      {n, _} when n > 0 -> "moved #{n} #{pluralize(n, "day")} later"
+      {n, _} when n < 0 -> "moved #{abs(n)} #{pluralize(abs(n), "day")} earlier"
+      _ -> esc(rest)
+    end
+  end
+
+  defp pluralize(1, word), do: word
+  defp pluralize(_, word), do: word <> "s"
 
   defp esc(nil), do: ""
   defp esc(s), do: s |> to_string() |> Phoenix.HTML.html_escape() |> Phoenix.HTML.safe_to_string()
@@ -737,12 +832,12 @@ defmodule HospexWeb.DashboardLive do
   defp full_dow("Sat"), do: "Saturday"
   defp full_dow("Sun"), do: "Sunday"
 
-  defp room_num(room_id) do
-    case room_id do
-      "r" <> rest -> rest
-      other       -> other
-    end
-  end
+  # Room ids look like "room-301" (or a bare "302"). Strip the prefix for
+  # display; also repair the legacy "oom-301" artifact baked into older events.
+  defp room_num(room_id) when is_binary(room_id),
+    do: String.replace(room_id, ~r/^(room[-_]|oom-)/, "")
+
+  defp room_num(other), do: to_string(other)
 
   # The activity feed uses keyed icon names — rendered as inline SVGs.
   def act_icon_svg(name) do

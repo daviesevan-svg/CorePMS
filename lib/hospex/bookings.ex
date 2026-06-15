@@ -43,6 +43,10 @@ defmodule Hospex.Bookings do
 
   defp humanize_kind(kind), do: kind |> Atom.to_string() |> String.replace("_", " ") |> String.capitalize()
 
+  # Room ids are "room-301" (or a bare "302"); show just the number/label.
+  defp room_label(id) when is_binary(id), do: String.replace(id, ~r/^room[-_]/, "")
+  defp room_label(id), do: to_string(id)
+
   # Run a Store mutation and its audit-log entry in one transaction.
   # Returns {:ok, fresh_booking_map} | {:error, :not_found | reason}.
   defp mutate_and_log(booking_id, update_fn, kind, opts) do
@@ -692,7 +696,7 @@ defmodule Hospex.Bookings do
           }
         end,
         :room_added,
-        summary: "Room added · #{attrs.guest_name} in #{attrs.room_id |> String.replace_prefix("r", "")}"
+        summary: "Room added · #{attrs.guest_name} in #{room_label(attrs.room_id)}"
       )
 
     case result do
@@ -821,7 +825,7 @@ defmodule Hospex.Bookings do
   defp position_summary(changes) do
     parts =
       [
-        Map.get(changes, :room_id)        && "moved to room #{String.replace_prefix(changes.room_id, "r", "")}",
+        Map.get(changes, :room_id)        && "moved to room #{room_label(changes.room_id)}",
         Map.get(changes, :delta_start, 0) != 0 && "shifted check-in by #{changes.delta_start}d",
         Map.get(changes, :delta_end, 0)   != 0 && "shifted check-out by #{changes.delta_end}d"
       ]
@@ -844,7 +848,7 @@ defmodule Hospex.Bookings do
           %{b | stays: new_stays}
         end,
         :stay_moved,
-        summary: "Stay moved to room #{String.replace_prefix(new_room_id, "r", "")}"
+        summary: "Stay moved to room #{room_label(new_room_id)}"
       )
       |> ok_and_broadcast(booking_id)
     end
