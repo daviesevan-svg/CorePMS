@@ -74,6 +74,17 @@ defmodule Hospex.Content.Property do
     end
   end
 
+  @doc """
+  Whether displayed/entered prices already include tax (true) or tax is added
+  on top at checkout (false). Defaults to false.
+  """
+  def prices_include_tax do
+    case load_property() do
+      {:ok, %{"tax" => %{"prices_include" => v}}} when is_boolean(v) -> v
+      _ -> false
+    end
+  end
+
   def save_property(map) when is_map(map) do
     path = property_file()
 

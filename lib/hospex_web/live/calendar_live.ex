@@ -337,6 +337,7 @@ defmodule HospexWeb.CalendarLive do
       rate_night:        rate,
       cleaning_fee:      Map.get(b, :cleaning_fee) || 0,
       tax_rate:          Map.get(b, :tax_rate) || Property.tax_rate(),
+      prices_include:    Property.prices_include_tax(),
       user_touched_rate: true,
       lead_name:         b.lead_guest,
       email:             Map.get(b, :email) || "",
@@ -1226,6 +1227,7 @@ defmodule HospexWeb.CalendarLive do
       rate_night:        nb_rate(Pricing.primary_plan(), type_id, start_date, 2, 0),
       cleaning_fee:      0,
       tax_rate:          Property.tax_rate(),
+      prices_include:    Property.prices_include_tax(),
       user_touched_rate: false,
       # Lead contact (the booker — applies to the whole booking).
       lead_name:         "",
@@ -1396,8 +1398,22 @@ defmodule HospexWeb.CalendarLive do
       rows -> Enum.sum(Enum.map(rows, & &1.amount))
     end
   end
-  def nb_tax(f),        do: round((nb_subtotal(f) + f.cleaning_fee) * f.tax_rate / 100)
-  def nb_total(f),      do: nb_subtotal(f) + f.cleaning_fee + nb_tax(f)
+  # Tax-inclusive: the entered rate already includes tax, so it's the portion
+  # backed out of the gross. Tax-exclusive: it's added on top.
+  def nb_tax(f) do
+    gross = nb_subtotal(f) + f.cleaning_fee
+
+    if Map.get(f, :prices_include, false) do
+      round(gross * f.tax_rate / (100 + f.tax_rate))
+    else
+      round(gross * f.tax_rate / 100)
+    end
+  end
+
+  def nb_total(f) do
+    base = nb_subtotal(f) + f.cleaning_fee
+    if Map.get(f, :prices_include, false), do: base, else: base + nb_tax(f)
+  end
   def nb_nights(f),     do: max(1, Date.diff(f.end_date, f.start_date))
 
   @doc """
