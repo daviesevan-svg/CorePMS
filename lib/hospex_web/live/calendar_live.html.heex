@@ -1062,7 +1062,7 @@
               </div>
             <% end %>
             <div class="nb-pricing-row">
-              <span class="k">Tax (<%= nb.tax_rate %>%)</span>
+              <span class="k"><%= if nb.prices_include, do: "Incl. tax", else: "Tax" %> (<%= nb.tax_rate %>%)</span>
               <span class="v">€<%= tax_amount %></span>
             </div>
             <div class="nb-pricing-row total">

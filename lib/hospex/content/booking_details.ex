@@ -111,8 +111,20 @@ defmodule Hospex.Content.BookingDetails do
     tax_rate   = Map.get(booking, :tax_rate) || 0
     rate_night = Map.get(booking, :rate_night)
 
+    prices_include = Hospex.Content.Property.prices_include_tax()
+
     {subtotal, tax} =
       cond do
+        prices_include and tax_rate > 0 ->
+          # Tax-inclusive: the total is the gross the guest pays; the tax is the
+          # portion already baked into it (informational, not added on top).
+          sub =
+            if is_integer(rate_night) and rate_night > 0,
+              do: rate_night * room_nights,
+              else: max(booking.total - cleaning, 0)
+
+          {sub, round(booking.total * tax_rate / (100 + tax_rate))}
+
         is_integer(rate_night) and rate_night > 0 ->
           sub = rate_night * room_nights
           {sub, max(booking.total - sub - cleaning, 0)}
@@ -158,6 +170,7 @@ defmodule Hospex.Content.BookingDetails do
       subtotal:       subtotal,
       tax:            tax,
       tax_rate:       tax_rate,
+      prices_include: prices_include,
       cleaning:       cleaning,
       requests:       requests,
       # No real ETA data exists yet — render as unknown, don't invent one.
