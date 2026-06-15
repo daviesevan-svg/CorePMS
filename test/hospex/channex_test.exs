@@ -185,6 +185,22 @@ defmodule Hospex.ChannexTest do
 
       today = Date.utc_today()
 
+      # Pin the two contiguous dates to the SAME rate so they always compress
+      # into one range. Without this, day-of-week / seasonal pricing can make
+      # consecutive days price differently, splitting them into two ranges and
+      # making the expected count drift with the calendar date.
+      :ok = Hospex.Inventory.put_overrides([
+        {"classic-room", Date.add(today, 10), :rate, 150},
+        {"classic-room", Date.add(today, 11), :rate, 150}
+      ])
+
+      on_exit(fn ->
+        Hospex.Inventory.put_overrides([
+          {"classic-room", Date.add(today, 10), :rate, nil},
+          {"classic-room", Date.add(today, 11), :rate, nil}
+        ])
+      end)
+
       test_pid = self()
 
       Req.Test.stub(Hospex.ChannexStub, fn conn ->
@@ -196,7 +212,8 @@ defmodule Hospex.ChannexTest do
       cells = [
         # Past date — must be dropped.
         {"classic-room", Date.add(today, -3), "rate"},
-        # Two contiguous rate-only dates → one range; one detached → its own.
+        # Two contiguous rate-only dates at the same (overridden) rate → one
+        # range; one detached → its own.
         {"classic-room", Date.add(today, 10), "rate"},
         {"classic-room", Date.add(today, 11), "rate"},
         {"classic-room", Date.add(today, 20), "rate"},
