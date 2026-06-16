@@ -39,11 +39,15 @@ defmodule HospexWeb.Router do
     get "/", PageController, :home
     get "/settings", Redirector, :settings
 
+    # CSV exports — plain controller routes (real downloads), same auth gate.
+    get "/reports/financial.csv", ReportController, :financial
+
     live_session :staff, on_mount: [{HospexWeb.UserAuth, :ensure_authenticated}] do
       live "/dashboard", DashboardLive, :index
       live "/calendar", CalendarLive, :index
       live "/bookings", BookingsLive, :index
       live "/inventory", InventoryLive, :index
+      live "/reports", ReportsLive, :index
 
       live "/settings/property",   Settings.PropertyLive,  :index
       live "/settings/room-types", Settings.RoomTypesLive, :index
