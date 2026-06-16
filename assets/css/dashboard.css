@@ -559,3 +559,69 @@ button.dr-task:hover { background: var(--bg-sunk); }
   background: transparent; color: var(--ink-3); cursor: pointer;
 }
 .task-booking-clear:hover { background: var(--bg-elev); color: var(--ink); }
+
+/* ── Financial report ───────────────────────────────────── */
+.reports-head { flex-wrap: wrap; }
+.report-range { display: inline-flex; align-items: center; gap: 10px; }
+.report-range-field {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--ink-3);
+}
+.report-range-field input {
+  font-family: inherit; font-size: 12.5px; color: var(--ink);
+  background: var(--bg-elev); border: 1px solid var(--line); border-radius: 7px;
+  padding: 5px 8px;
+}
+.report-presets { display: inline-flex; align-items: center; gap: 6px; margin-left: 6px; }
+.report-preset {
+  font-family: inherit; font-size: 12px; font-weight: 500; color: var(--ink-2); cursor: pointer;
+  background: var(--bg-elev); border: 1px solid var(--line); border-radius: 7px;
+  padding: 5px 10px;
+}
+.report-preset:hover { color: var(--ink); background: var(--bg-sunk); }
+.report-csv-btn {
+  display: inline-flex; align-items: center; gap: 6px; margin-left: 10px;
+  font-size: 12.5px; font-weight: 600; color: var(--ink); text-decoration: none;
+  background: var(--bg-elev); border: 1px solid var(--line); border-radius: 7px;
+  padding: 6px 12px;
+}
+.report-csv-btn:hover { background: var(--bg-sunk); }
+.report-csv-btn svg { width: 13px; height: 13px; color: var(--ink-3); }
+
+.report-rows { display: flex; flex-direction: column; padding: 4px 18px 0; }
+.report-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 9px 0; border-top: 1px solid var(--line);
+  font-size: 13px; color: var(--ink-2);
+}
+.report-row:first-child { border-top: 0; }
+.report-row .num { font-family: 'Geist Mono', monospace; color: var(--ink); font-variant-numeric: tabular-nums; }
+.report-row.sub { padding: 5px 0 5px 14px; font-size: 12px; color: var(--ink-3); border-top: 0; }
+.report-row.sub .num { color: var(--ink-2); }
+.report-dim { color: var(--ink-4); }
+.report-row.total { font-weight: 600; color: var(--ink); border-top: 1.5px solid var(--line-strong, var(--line)); }
+.report-row.total .num { font-weight: 600; font-size: 14px; }
+
+.report-big { padding: 18px 18px 4px; }
+.report-big-value {
+  font-size: 32px; font-weight: 600; letter-spacing: -0.03em; line-height: 1;
+  color: var(--ink); font-variant-numeric: tabular-nums;
+}
+.report-big-label { font-size: 12.5px; color: var(--ink-3); margin-top: 8px; }
+.report-foot {
+  font-size: 11px; color: var(--ink-4); letter-spacing: 0.04em;
+  padding: 12px 18px 16px;
+}
+
+.report-table { width: 100%; border-collapse: collapse; }
+.report-table th {
+  text-align: left; font-size: 10.5px; font-weight: 600; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--ink-3);
+  padding: 8px 18px; border-bottom: 1px solid var(--line);
+}
+.report-table td {
+  font-size: 13px; color: var(--ink-2);
+  padding: 10px 18px; border-bottom: 1px solid var(--line);
+}
+.report-table tbody tr:last-child td { border-bottom: 0; }
+.report-table .num { text-align: right; font-family: 'Geist Mono', monospace; color: var(--ink); font-variant-numeric: tabular-nums; }

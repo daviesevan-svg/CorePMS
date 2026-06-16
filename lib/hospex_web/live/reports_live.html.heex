@@ -1,0 +1,151 @@
+<div class="app dashboard-app">
+
+  <%!-- ── Top bar ──────────────────────────────────────────────── --%>
+  <div class="topbar">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div class="brand-name">Hospex</div>
+    </div>
+    <div class="brand-sep"></div>
+    <div class="property">
+      <div class="property-avatar">LM</div>
+      <div class="property-name">Le Petit Madeleine</div>
+      <svg class="chev" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 6 8 10.5 12.5 6"/></svg>
+    </div>
+    <div class="navtabs">
+      <.link navigate={~p"/dashboard"} class="navtab">Dashboard</.link>
+      <.link navigate={~p"/calendar"} class="navtab">Calendar</.link>
+      <.link navigate={~p"/bookings"} class="navtab">Bookings</.link>
+      <button class="navtab">Guests</button>
+      <.link navigate={~p"/inventory"} class="navtab">Inventory</.link>
+      <.link navigate={~p"/settings"} class="navtab">Settings</.link>
+      <.link navigate={~p"/reports"} class="navtab" data-active="1">Reports</.link>
+    </div>
+    <div class="top-right">
+      <button class="icon-btn" title="Help">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="8" cy="8" r="6"/><path d="M6 6.5a2 2 0 1 1 2.5 2c-.6.2-.5.7-.5 1.5"/><circle cx="8" cy="12" r=".5" fill="currentColor" stroke="none"/></svg>
+      </button>
+      <button class="icon-btn" title="Notifications">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7a4 4 0 1 1 8 0v3l1 2H3l1-2V7Z"/><path d="M6.5 13.5a1.5 1.5 0 0 0 3 0"/></svg>
+        <span class="badge-dot"></span>
+      </button>
+      <button class="icon-btn" title="Settings">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2"/><path d="M8 1.5v2M8 12.5v2M14.5 8h-2M3.5 8h-2M12.6 3.4 11.2 4.8M4.8 11.2l-1.4 1.4M12.6 12.6l-1.4-1.4M4.8 4.8 3.4 3.4"/></svg>
+      </button>
+      <.link href="/logout" method="delete" data-confirm="Sign out of Hospex?" class="me-avatar" title="Sign out" style="text-decoration:none">EM</.link>
+    </div>
+  </div>
+
+  <%!-- ── Report header / controls ─────────────────────────────── --%>
+  <div class="greeting reports-head">
+    <div class="hi">Financial summary</div>
+    <div class="date">· <%= @range_label %></div>
+    <div class="spacer"></div>
+    <form class="report-range" phx-change="set_range">
+      <label class="report-range-field">
+        <span>From</span>
+        <input type="date" name="from" value={Date.to_iso8601(@from)} />
+      </label>
+      <label class="report-range-field">
+        <span>To</span>
+        <input type="date" name="to" value={Date.to_iso8601(@to)} />
+      </label>
+    </form>
+    <div class="report-presets">
+      <button type="button" class="report-preset" phx-click="set_preset" phx-value-preset="this_month">This month</button>
+      <button type="button" class="report-preset" phx-click="set_preset" phx-value-preset="last_month">Last month</button>
+      <button type="button" class="report-preset" phx-click="set_preset" phx-value-preset="this_year">This year</button>
+    </div>
+    <.link href={~p"/reports/financial.csv?from=#{Date.to_iso8601(@from)}&to=#{Date.to_iso8601(@to)}"} class="report-csv-btn">
+      <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2.5v8M5 7.5 8 10.5 11 7.5M3 13h10"/></svg>
+      Download CSV
+    </.link>
+  </div>
+
+  <%!-- ── Body ─────────────────────────────────────────────────── --%>
+  <div class="dashboard">
+
+    <div class="grid-3">
+      <%!-- Revenue --%>
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">Revenue</div>
+          <span class="card-count"><%= @summary.revenue.bookings %> booking<%= if @summary.revenue.bookings != 1, do: "s" %></span>
+        </div>
+        <div class="card-body">
+          <div class="report-rows">
+            <div class="report-row"><span>Room</span><span class="num"><%= eur(@summary.revenue.room) %></span></div>
+            <div class="report-row"><span>Cleaning</span><span class="num"><%= eur(@summary.revenue.cleaning) %></span></div>
+            <div class="report-row"><span>Tax</span><span class="num"><%= eur(@summary.revenue.tax) %></span></div>
+            <div class="report-row"><span>Net</span><span class="num"><%= eur(@summary.revenue.net) %></span></div>
+            <div class="report-row total"><span>Gross total</span><span class="num"><%= eur(@summary.revenue.gross) %></span></div>
+          </div>
+          <div class="report-foot">Bookings arriving in this period</div>
+        </div>
+      </div>
+
+      <%!-- Payments --%>
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">Payments</div>
+          <span class="card-count"><%= eur(@summary.payments.net_cash) %> net</span>
+        </div>
+        <div class="card-body">
+          <div class="report-rows">
+            <div class="report-row"><span>Collected</span><span class="num"><%= eur(@summary.payments.payments_total) %></span></div>
+            <%= for m <- @summary.payments.by_method do %>
+              <div class="report-row sub"><span><%= method_label(m.method) %> <span class="report-dim">×<%= m.count %></span></span><span class="num"><%= eur(m.amount) %></span></div>
+            <% end %>
+            <div class="report-row"><span>Refunds</span><span class="num">−<%= eur(@summary.payments.refunds_total) %></span></div>
+            <div class="report-row total"><span>Net cash</span><span class="num"><%= eur(@summary.payments.net_cash) %></span></div>
+          </div>
+          <div class="report-foot">Cash movements in this period</div>
+        </div>
+      </div>
+
+      <%!-- Outstanding --%>
+      <div class="card">
+        <div class="card-head">
+          <div class="card-title">Outstanding</div>
+          <span class="card-count"><%= @summary.outstanding.count %> booking<%= if @summary.outstanding.count != 1, do: "s" %></span>
+        </div>
+        <div class="card-body">
+          <div class="report-big">
+            <div class="report-big-value"><%= eur(@summary.outstanding.total) %></div>
+            <div class="report-big-label">unpaid across <%= @summary.outstanding.count %> active booking<%= if @summary.outstanding.count != 1, do: "s" %></div>
+          </div>
+          <div class="report-foot">As of today</div>
+        </div>
+      </div>
+    </div>
+
+    <%!-- By channel --%>
+    <div class="card">
+      <div class="card-head">
+        <div class="card-title">By channel</div>
+        <span class="card-count"><%= length(@summary.by_channel) %></span>
+      </div>
+      <div class="card-body">
+        <%= if @summary.by_channel == [] do %>
+          <div class="empty">No revenue in this period</div>
+        <% else %>
+          <table class="report-table">
+            <thead>
+              <tr><th>Channel</th><th class="num">Bookings</th><th class="num">Gross</th><th class="num">Net</th></tr>
+            </thead>
+            <tbody>
+              <%= for c <- @summary.by_channel do %>
+                <tr>
+                  <td><%= c.label %></td>
+                  <td class="num"><%= c.bookings %></td>
+                  <td class="num"><%= eur(c.gross) %></td>
+                  <td class="num"><%= eur(c.net) %></td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        <% end %>
+      </div>
+    </div>
+  </div>
+</div>

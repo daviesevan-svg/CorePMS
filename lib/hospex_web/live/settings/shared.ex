@@ -125,7 +125,7 @@ defmodule HospexWeb.Settings.Shared do
         <.link patch="/bookings" class="navtab">Bookings</.link>
         <button class="navtab">Guests</button>
         <.link patch="/inventory" class="navtab">Inventory</.link>
-        <button class="navtab">Reports</button>
+        <.link navigate="/reports" class="navtab">Reports</.link>
         <.link patch="/settings/property" class="navtab" data-active="1">Settings</.link>
       </div>
       <div class="top-right">
