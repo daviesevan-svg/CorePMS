@@ -16,16 +16,17 @@ defmodule Hospex.Inventory.Store do
   alias Hospex.Repo
   alias Hospex.Inventory.Override
 
-  @doc "Return the full overrides map (NULL fields omitted)."
+  @doc "Return the full overrides map (NULL fields omitted; all-NULL rows skipped)."
   def overrides do
     Override
     |> Repo.all()
-    |> Map.new(fn o ->
+    |> Enum.flat_map(fn o ->
       fields =
         for f <- Override.fields(), not is_nil(Map.get(o, f)), into: %{}, do: {f, Map.get(o, f)}
 
-      {{o.room_type_id, o.date}, fields}
+      if fields == %{}, do: [], else: [{{o.room_type_id, o.date}, fields}]
     end)
+    |> Map.new()
   end
 
   @doc """
