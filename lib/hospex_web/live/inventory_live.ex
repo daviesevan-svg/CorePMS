@@ -12,7 +12,9 @@ defmodule HospexWeb.InventoryLive do
   @impl true
   def mount(_params, _session, socket) do
     today  = Date.utc_today()
-    anchor = Date.add(today, -3)
+    # Start the grid on today — past dates can't be sold or synced to OTAs,
+    # so there's no reason to default to showing them.
+    anchor = today
 
     if connected?(socket) do
       Bookings.subscribe()
@@ -86,7 +88,7 @@ defmodule HospexWeb.InventoryLive do
 
   @impl true
   def handle_event("go_today", _, socket),
-    do: {:noreply, socket |> assign(:anchor, Date.add(socket.assigns.today, -3)) |> derive_view()}
+    do: {:noreply, socket |> assign(:anchor, socket.assigns.today) |> derive_view()}
 
   def handle_event("go_prev", _, %{assigns: %{anchor: a, view_span: s}} = socket),
     do: {:noreply, socket |> assign(:anchor, Date.add(a, -s)) |> derive_view()}
