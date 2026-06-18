@@ -167,7 +167,14 @@ defmodule HospexWeb.InventoryLive do
             socket
           end
 
-        {:noreply, assign(socket, :editing, %{rt: rt, date: d, field: f})}
+        # Snapshot the raw prior override of every target cell (nil = no
+        # override) so cancel can discard the live preview cleanly — removing
+        # the override entirely where there wasn't one, not just resetting it
+        # to the default value (which would leave a phantom "changed" cell).
+        targets   = targets_for(socket.assigns.selection, rt, f, d)
+        originals  = Map.new(targets, fn dt -> {dt, (socket.assigns.overrides[{rt, dt}] || %{})[f]} end)
+
+        {:noreply, assign(socket, :editing, %{rt: rt, date: d, field: f, originals: originals})}
       _ ->
         {:noreply, socket}
     end
@@ -175,10 +182,10 @@ defmodule HospexWeb.InventoryLive do
 
   def handle_event("cancel_edit", _, %{assigns: %{editing: %{originals: originals} = e}} = socket)
       when is_map(originals) do
-    # Revert every cell touched by the live preview back to its pre-edit value.
+    # Revert every cell touched by the live preview back to its pre-edit state.
     socket =
       Enum.reduce(originals, socket, fn {d, original}, acc ->
-        apply_override(acc, e.rt, d, e.field, original)
+        restore_override(acc, e.rt, d, e.field, original)
       end)
 
     {:noreply, assign(socket, editing: nil, selection: nil)}
@@ -214,7 +221,7 @@ defmodule HospexWeb.InventoryLive do
           %{originals: originals} when is_map(originals) ->
             socket =
               Enum.reduce(originals, socket, fn {d, original}, acc ->
-                apply_override(acc, e.rt, d, e.field, original)
+                restore_override(acc, e.rt, d, e.field, original)
               end)
             {:noreply, assign(socket, editing: nil, selection: nil)}
 
@@ -270,10 +277,9 @@ defmodule HospexWeb.InventoryLive do
         # effective value of every selected cell so Esc can revert cleanly
         # after any number of live-preview updates.
         first_date = Enum.min_by(dates, &Date.to_erl/1)
+        # Raw prior override per cell (nil = none) so cancel discards cleanly.
         originals =
-          Map.new(dates, fn d ->
-            {d, InventoryDefaults.cell(socket.assigns.plan, rt, d, socket.assigns.overrides)[f]}
-          end)
+          Map.new(dates, fn d -> {d, (socket.assigns.overrides[{rt, d}] || %{})[f]} end)
 
         {:noreply,
          assign(socket,
@@ -325,6 +331,26 @@ defmodule HospexWeb.InventoryLive do
     cell      = Map.get(overrides, {rt, date}, %{}) |> Map.put(field, value)
     assign(socket, :overrides, Map.put(overrides, {rt, date}, cell))
   end
+
+  # Restore a field to its pre-edit state: `nil` removes the override (and drops
+  # the cell entry if nothing else is overridden), otherwise it's set. Used to
+  # discard a live preview on cancel without leaving a phantom override behind.
+  defp restore_override(socket, rt, date, field, nil) do
+    overrides = socket.assigns.overrides
+
+    case Map.get(overrides, {rt, date}) do
+      nil ->
+        socket
+
+      cell ->
+        cell = Map.delete(cell, field)
+        overrides = if cell == %{}, do: Map.delete(overrides, {rt, date}), else: Map.put(overrides, {rt, date}, cell)
+        assign(socket, :overrides, overrides)
+    end
+  end
+
+  defp restore_override(socket, rt, date, field, value),
+    do: apply_override(socket, rt, date, field, value)
 
   defp parse_field(:rate, raw) do
     case Integer.parse(String.trim(raw)) do
@@ -481,5 +507,24 @@ defmodule HospexWeb.InventoryLive do
   def dp_month_label(month_start) do
     Enum.at(~w(January February March April May June July August September October November December), month_start.month - 1)
     |> Kernel.<>(" #{month_start.year}")
+  end
+
+  @doc """
+  Floating save / cancel controls for an inline cell editor, so the value can
+  be committed or discarded with the mouse (not just Enter / Escape / blur).
+  The `InlineEdit` hook wires the clicks (and keeps the input focused so the
+  blur-commit doesn't fire first).
+  """
+  def inline_edit_actions(assigns) do
+    ~H"""
+    <div class="ie-actions">
+      <button type="button" class="ie-save" title="Save" aria-label="Save">
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m3.5 8.5 3 3 6-7"/></svg>
+      </button>
+      <button type="button" class="ie-cancel" title="Cancel" aria-label="Cancel">
+        <svg viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+      </button>
+    </div>
+    """
   end
 end

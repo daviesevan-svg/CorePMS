@@ -393,6 +393,21 @@ Hooks.InlineEdit = {
     input.addEventListener("input", this.onInput)
     input.addEventListener("blur", this.onBlur)
     input.addEventListener("keydown", this.onKey)
+
+    // Floating ✓ / ✗ controls for mouse users. Delegated on `this.el` (which
+    // survives the live-preview re-renders) rather than the buttons directly.
+    //  • mousedown→preventDefault keeps the input focused, so its blur-commit
+    //    doesn't fire before the click — critical for cancel, which must NOT
+    //    commit the typed value first.
+    //  • stopPropagation so the click doesn't bubble to the cell's
+    //    `phx-click="start_edit"` and immediately re-open the editor.
+    this.onActionDown = (e) => { if (e.target.closest(".ie-save, .ie-cancel")) e.preventDefault() }
+    this.onActionClick = (e) => {
+      if (e.target.closest(".ie-save"))   { e.stopPropagation(); this.pushEvent("commit_edit", { value: input.value }) }
+      if (e.target.closest(".ie-cancel")) { e.stopPropagation(); this.pushEvent("cancel_edit", {}) }
+    }
+    this.el.addEventListener("mousedown", this.onActionDown)
+    this.el.addEventListener("click", this.onActionClick)
   }
 }
 

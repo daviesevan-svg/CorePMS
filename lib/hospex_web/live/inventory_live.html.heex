@@ -207,6 +207,7 @@
                              phx-hook="InlineEdit"
                              data-value={cell.rate}>
                           <input type="number" />
+                          <.inline_edit_actions />
                         </div>
                       <% else %>
                         <span class="cell-value"><%= cell.rate %></span>
@@ -251,6 +252,7 @@
                         <div class="cell-edit" id={"edit-min-#{group.id}-#{Date.to_iso8601(date)}"}
                              phx-hook="InlineEdit" data-value={cell.min_stay}>
                           <input type="number" min="1" max="30" />
+                          <.inline_edit_actions />
                         </div>
                       <% else %>
                         <span class="cell-value"><%= cell.min_stay %>n</span>
