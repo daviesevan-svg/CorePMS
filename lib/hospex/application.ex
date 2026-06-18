@@ -7,7 +7,6 @@ defmodule Hospex.Application do
       Hospex.Repo,
       {DNSCluster, query: Application.get_env(:hospex, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Hospex.PubSub},
-      Hospex.Inventory.Store,
       {Oban, Application.fetch_env!(:hospex, Oban)},
       Hospex.Channex.Listener,
       HospexWeb.Endpoint

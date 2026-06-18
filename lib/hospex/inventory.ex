@@ -1,11 +1,8 @@
 defmodule Hospex.Inventory do
   @moduledoc """
   Inventory context. Persists per-day room-type overrides (rate,
-  min-stay, CTA, CTD, closed) in an in-memory store, and broadcasts
-  changes over PubSub so all open Inventory tabs refresh.
-
-  Eventually backed by Postgres + the property's YAML repo; for now it's
-  process-local state that survives within a server run.
+  min-stay, CTA, CTD, closed) in Postgres, and broadcasts changes over
+  PubSub so all open Inventory tabs refresh.
   """
 
   alias Hospex.Inventory.Store

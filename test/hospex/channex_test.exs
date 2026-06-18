@@ -133,17 +133,12 @@ defmodule Hospex.ChannexTest do
       tomorrow = Date.add(today, 1)
 
       # Staff override: bump tomorrow's classic rate and close it to arrival.
+      # (No cleanup needed — overrides live in Postgres now and the SQL sandbox
+      # rolls them back per test.)
       :ok = Hospex.Inventory.put_overrides([
         {"classic-room", tomorrow, :rate, 999},
         {"classic-room", tomorrow, :cta, true}
       ])
-
-      on_exit(fn ->
-        Hospex.Inventory.put_overrides([
-          {"classic-room", tomorrow, :rate, nil},
-          {"classic-room", tomorrow, :cta, false}
-        ])
-      end)
 
       test_pid = self()
 
@@ -193,13 +188,6 @@ defmodule Hospex.ChannexTest do
         {"classic-room", Date.add(today, 10), :rate, 150},
         {"classic-room", Date.add(today, 11), :rate, 150}
       ])
-
-      on_exit(fn ->
-        Hospex.Inventory.put_overrides([
-          {"classic-room", Date.add(today, 10), :rate, nil},
-          {"classic-room", Date.add(today, 11), :rate, nil}
-        ])
-      end)
 
       test_pid = self()
 
