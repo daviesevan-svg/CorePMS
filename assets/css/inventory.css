@@ -47,6 +47,18 @@
   display: grid; grid-auto-flow: column; grid-auto-columns: var(--cell-w);
 }
 
+/* The month label (shown on the 1st of a month / first column) is overlaid at
+   the top of the cell rather than stacked in the flex flow, so it doesn't push
+   the weekday + day-of-month down and misalign that column from its neighbours. */
+.date-cell .month-tag {
+  position: absolute;
+  top: 5px; left: 0; right: 0;
+  text-align: center;
+  font-size: 9px; font-weight: 600; color: var(--ink-3);
+  letter-spacing: 0.06em; text-transform: uppercase; line-height: 1;
+  pointer-events: none;
+}
+
 /* Thin neutral separator that aligns with the sidebar room-type header */
 .rt-separator {
   height: 46px;
