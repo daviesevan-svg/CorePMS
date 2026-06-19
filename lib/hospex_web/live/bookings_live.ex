@@ -2,9 +2,13 @@ defmodule HospexWeb.BookingsLive do
   use HospexWeb, :live_view
 
   import HospexWeb.BookingDrawerComponents
+  # Exclude helpers this module already defines locally; the booking_form
+  # component resolves its own copies internally.
+  import HospexWeb.BookingFormComponents, except: [maybe_put: 3, maybe_put: 4, to_int: 1]
 
   alias Hospex.Bookings
-  alias Hospex.Content.BookingDetails
+  alias Hospex.Content.{BookingDetails, Pricing}
+  alias HospexWeb.BookingForm
 
   @impl true
   def mount(_params, _session, socket) do
@@ -31,6 +35,7 @@ defmodule HospexWeb.BookingsLive do
       # load/1 refreshes don't wipe an open drawer.
       |> assign(
           selected_booking:    nil,
+          new_booking:         nil,
           drawer_tab:          "details",
           expanded_stays:      MapSet.new(),
           rate_breakdown_open: MapSet.new(),
@@ -324,6 +329,63 @@ defmodule HospexWeb.BookingsLive do
     {:noreply, assign(socket, :action_flash, nil)}
   end
 
+  # ── Booking form (edit / add room) ────────────────────────────
+  # Thin delegations to the shared HospexWeb.BookingForm transforms; the
+  # form markup is the shared <.booking_form> component.
+
+  def handle_event("open_new_booking", _, socket), do: {:noreply, BookingForm.open_new(socket)}
+
+  def handle_event("start_edit_booking", _, socket), do: {:noreply, BookingForm.start_edit(socket)}
+
+  def handle_event("switch_edit_stay", %{"stay_id" => sid}, socket) do
+    {:noreply, BookingForm.switch_stay(socket, to_int(sid))}
+  end
+
+  def handle_event("switch_edit_stay", _, socket), do: {:noreply, socket}
+
+  def handle_event("start_add_room", _, socket), do: {:noreply, BookingForm.start_add_room(socket)}
+
+  def handle_event("new_booking_cancel", _, socket), do: {:noreply, BookingForm.cancel(socket)}
+
+  def handle_event("new_booking_change", params, socket) do
+    {:noreply, BookingForm.apply_change(socket, params)}
+  end
+
+  def handle_event("toggle_nightly_expand", _, socket), do: {:noreply, BookingForm.toggle_nightly(socket)}
+
+  def handle_event("reset_nightly_rates", _, socket), do: {:noreply, BookingForm.reset_nightly(socket)}
+
+  def handle_event("set_nightly_rate", %{"date" => iso, "value" => v}, socket) do
+    {:noreply, BookingForm.set_nightly(socket, iso, v)}
+  end
+
+  def handle_event("set_nightly_rate", _, socket), do: {:noreply, socket}
+
+  def handle_event("nb_set_type", %{"id" => type_id}, socket) do
+    {:noreply, BookingForm.set_type(socket, type_id)}
+  end
+
+  def handle_event("nb_step", %{"field" => field, "dir" => dir}, socket) do
+    {:noreply, BookingForm.step(socket, field, dir)}
+  end
+
+  def handle_event("new_booking_save", _, socket) do
+    case BookingForm.save(socket, &load/1) do
+      {:ok, socket, {:reopen_booking, booking_id}} ->
+        {:noreply, do_select_booking(socket, booking_id)}
+
+      {:ok, socket, {:reopen_stay, stay_id}} ->
+        # The shared save returns a stay id; this page selects by booking id.
+        case Enum.find(socket.assigns.all_bookings, fn b -> Enum.any?(b.stays, &(&1.id == stay_id)) end) do
+          nil     -> {:noreply, socket}
+          booking -> {:noreply, do_select_booking(socket, booking.id)}
+        end
+
+      {:error, socket} ->
+        {:noreply, socket}
+    end
+  end
+
   defp toggle_member(set, member) do
     if MapSet.member?(set, member), do: MapSet.delete(set, member), else: MapSet.put(set, member)
   end
@@ -331,11 +393,13 @@ defmodule HospexWeb.BookingsLive do
   # ── Data loading + filtering ──────────────────────────────────
 
   defp load(socket) do
-    {room_groups, bookings, _stays} = Bookings.load_calendar()
+    {room_groups, bookings, stays} = Bookings.load_calendar()
     all_rooms = Enum.flat_map(room_groups, & &1.rooms)
 
     socket
-    |> assign(all_bookings: bookings, room_groups: room_groups, all_rooms: all_rooms)
+    # all_stays + plan feed the shared booking form (availability + pricing).
+    |> assign(all_bookings: bookings, all_stays: stays, room_groups: room_groups,
+              all_rooms: all_rooms, plan: Pricing.primary_plan())
     |> recompute_visible()
     # Re-derive the open drawer from fresh data (post-mutation / PubSub
     # refresh); leaves it nil when no drawer is open.
