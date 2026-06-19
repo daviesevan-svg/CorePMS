@@ -199,9 +199,10 @@
     block_edit={@block_edit}
     more_menu_open={@more_menu_open}
     focused_stay_id={@focused_stay_id}
-    editable={false}
+    editable={true}
     back_label="Bookings"
   />
+  <.booking_form new_booking={@new_booking} room_groups={@room_groups} all_bookings={@all_bookings} all_rooms={@all_rooms} all_stays={@all_stays} plan={@plan} back_label="Bookings" />
   <.txn_modal txn_form={@txn_form} />
 
   <%!-- Lightweight transient flash. Auto-dismisses after ~3.5s via the
