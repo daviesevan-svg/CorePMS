@@ -3,12 +3,20 @@ defmodule Hospex.Tasks do
   Tasks context — operational to-dos staff manage from the dashboard.
   Postgres-backed (same pattern as `Hospex.Bookings`) and broadcasts
   changes over PubSub so the dashboard refreshes live.
+
+  Every public mutation records exactly one `TaskLog` entry (created |
+  updated | completed | reopened | deleted) for the activity log. To avoid
+  double-logging, the mutations share a private `persist_update/2` that does
+  the changeset + `Repo.update` with NO logging/broadcast; each public path
+  logs the right action itself.
   """
 
   import Ecto.Query, only: [from: 2]
 
   alias Hospex.Repo
   alias Hospex.Tasks.Task
+  alias Hospex.Tasks.TaskSettings
+  alias Hospex.Tasks.TaskLog
 
   @pubsub_topic "tasks"
 
@@ -64,20 +72,81 @@ defmodule Hospex.Tasks do
 
   def get_task(id), do: Repo.get(Task, id)
 
-  # ── Writes ───────────────────────────────────────────────────
+  # ── Settings (singleton) ─────────────────────────────────────
 
-  def create_task(attrs) do
-    %Task{}
-    |> Task.changeset(attrs)
-    |> Repo.insert()
+  @doc """
+  The settings singleton row, or in-memory defaults when none exists. Does
+  NOT require a row to exist — the dashboard works on a fresh DB.
+  """
+  def get_settings do
+    Repo.one(from(s in TaskSettings, order_by: [asc: :id], limit: 1)) ||
+      %TaskSettings{default_priority: "med", show_completed: true, sort_by: "priority"}
+  end
+
+  @doc """
+  Upsert the singleton settings row: update the first row if present,
+  otherwise insert. Validates, broadcasts on success.
+  """
+  def update_settings(attrs) do
+    settings = Repo.one(from(s in TaskSettings, order_by: [asc: :id], limit: 1)) || %TaskSettings{}
+
+    settings
+    |> TaskSettings.changeset(attrs)
+    |> Repo.insert_or_update()
     |> tap_broadcast()
   end
 
+  # ── Logs ─────────────────────────────────────────────────────
+
+  @doc "Recent task activity, newest first."
+  def list_logs(limit \\ 30) do
+    Repo.all(from(l in TaskLog, order_by: [desc: :at, desc: :id], limit: ^limit))
+  end
+
+  # Record exactly one activity entry. Accepts a %Task{} (snapshots id/title)
+  # or a bare attrs map (used by delete, where the task is already gone).
+  # Insert is best-effort but kept simple — Repo.insert! here would only fail
+  # on a programming error, and mutations call it after their own success.
+  defp log_task(action, %Task{} = task, detail) do
+    insert_log(%{action: action, task_id: task.id, title: task.title, detail: detail})
+  end
+
+  defp log_task(action, attrs, detail) when is_map(attrs) do
+    insert_log(Map.merge(%{action: action, detail: detail}, attrs))
+  end
+
+  defp insert_log(attrs) do
+    attrs = Map.put_new(attrs, :at, NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second))
+
+    %TaskLog{}
+    |> TaskLog.changeset(attrs)
+    |> Repo.insert!()
+  end
+
+  # ── Writes ───────────────────────────────────────────────────
+
+  def create_task(attrs) do
+    case %Task{} |> Task.changeset(attrs) |> Repo.insert() do
+      {:ok, task} ->
+        log_task("created", task, nil)
+        broadcast()
+        {:ok, task}
+
+      err ->
+        err
+    end
+  end
+
   def update_task(%Task{} = task, attrs) do
-    task
-    |> Task.changeset(attrs)
-    |> Repo.update()
-    |> tap_broadcast()
+    case persist_update(task, attrs) do
+      {:ok, updated} ->
+        log_task("updated", updated, updated.title)
+        broadcast()
+        {:ok, updated}
+
+      err ->
+        err
+    end
   end
 
   def update_task(id, attrs) when is_integer(id) do
@@ -92,29 +161,39 @@ defmodule Hospex.Tasks do
   and the completion timestamp.
   """
   def complete_task(id, note) do
-    with %Task{} = task <- get_task(id) do
-      update_task(task, %{
-        done:            true,
-        completion_note: note,
-        completed_at:    NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
-      })
+    with %Task{} = task <- get_task(id),
+         {:ok, done} <- persist_update(task, %{
+           done:            true,
+           completion_note: note,
+           completed_at:    NaiveDateTime.utc_now() |> NaiveDateTime.truncate(:second)
+         }) do
+      log_task("completed", done, blank_to_nil(note))
+      broadcast()
+      {:ok, done}
     else
       nil -> {:error, :not_found}
+      err -> err
     end
   end
 
   @doc "Reopen a completed task, clearing its completion note + timestamp."
   def reopen_task(id) do
-    with %Task{} = task <- get_task(id) do
-      update_task(task, %{done: false, completed_at: nil, completion_note: nil})
+    with %Task{} = task <- get_task(id),
+         {:ok, reopened} <- persist_update(task, %{done: false, completed_at: nil, completion_note: nil}) do
+      log_task("reopened", reopened, nil)
+      broadcast()
+      {:ok, reopened}
     else
       nil -> {:error, :not_found}
+      err -> err
     end
   end
 
   def delete_task(id) do
     with %Task{} = task <- get_task(id),
+         title = task.title,
          {:ok, _} = result <- Repo.delete(task) do
+      log_task("deleted", %{task_id: task.id, title: title}, nil)
       broadcast()
       result
     else
@@ -122,6 +201,17 @@ defmodule Hospex.Tasks do
       err -> err
     end
   end
+
+  # Changeset + Repo.update with NO logging/broadcast — shared by every
+  # mutation path so each can log exactly one action.
+  defp persist_update(%Task{} = task, attrs) do
+    task
+    |> Task.changeset(attrs)
+    |> Repo.update()
+  end
+
+  defp blank_to_nil(nil), do: nil
+  defp blank_to_nil(s) when is_binary(s), do: (if String.trim(s) == "", do: nil, else: s)
 
   # Broadcast on a successful mutation; pass errors through unchanged.
   defp tap_broadcast({:ok, _} = result) do
