@@ -17,6 +17,9 @@ defmodule Hospex.Tasks do
   alias Hospex.Tasks.Task
   alias Hospex.Tasks.TaskSettings
   alias Hospex.Tasks.TaskLog
+  alias Hospex.Tasks.ScheduledTask
+
+  require Logger
 
   @pubsub_topic "tasks"
 
@@ -220,4 +223,108 @@ defmodule Hospex.Tasks do
   end
 
   defp tap_broadcast(other), do: other
+
+  # ── Scheduled (recurring) tasks ───────────────────────────────
+  #
+  # A scheduled task is a template "like a phone alarm". The Oban worker
+  # Hospex.Tasks.Workers.MaterializeScheduled calls run_due_schedules/0
+  # every minute; on each matching weekday, once time_of_day has passed, a
+  # real Task is created (so it logs + broadcasts like any other task) and
+  # the schedule's last_run_on is bumped so it fires at most once per day.
+
+  @doc "All schedules, oldest first (insertion order)."
+  def list_scheduled do
+    Repo.all(from(s in ScheduledTask, order_by: [asc: :inserted_at, asc: :id]))
+  end
+
+  def get_scheduled(id), do: Repo.get(ScheduledTask, id)
+
+  def create_scheduled(attrs) do
+    %ScheduledTask{}
+    |> ScheduledTask.changeset(attrs)
+    |> Repo.insert()
+    |> tap_broadcast()
+  end
+
+  def update_scheduled(%ScheduledTask{} = sched, attrs) do
+    sched
+    |> ScheduledTask.changeset(attrs)
+    |> Repo.update()
+    |> tap_broadcast()
+  end
+
+  def update_scheduled(id, attrs) when is_integer(id) do
+    case get_scheduled(id) do
+      nil   -> {:error, :not_found}
+      sched -> update_scheduled(sched, attrs)
+    end
+  end
+
+  def delete_scheduled(id) when is_integer(id) do
+    case get_scheduled(id) do
+      nil   -> {:error, :not_found}
+      sched -> Repo.delete(sched) |> tap_broadcast()
+    end
+  end
+
+  def delete_scheduled(%ScheduledTask{} = sched), do: Repo.delete(sched) |> tap_broadcast()
+
+  def set_scheduled_enabled(id, enabled?) when is_integer(id) and is_boolean(enabled?) do
+    update_scheduled(id, %{enabled: enabled?})
+  end
+
+  @doc """
+  Materialise real tasks for every schedule that is due as of `now`.
+
+  A schedule is due when it is enabled, today's ISO weekday is in its `days`,
+  the current time is at/after its `time_of_day`, and it has not already run
+  today (`last_run_on != today`). For each due schedule a Task is created
+  (via `create_task/1`, so it logs + broadcasts) with `due_on: today`, and
+  the schedule's `last_run_on` is set to today. Idempotent: running it again
+  the same day creates nothing more. Each schedule is processed
+  independently so one failure does not block the rest.
+
+  Returns `{:ok, count_created}`. `now` is a parameter so tests can pin the
+  clock — the wall clock is only read when no value is given.
+  """
+  def run_due_schedules(now \\ NaiveDateTime.utc_now()) do
+    today = NaiveDateTime.to_date(now)
+    dow   = Date.day_of_week(today)
+    time  = NaiveDateTime.to_time(now)
+
+    count =
+      list_scheduled()
+      |> Enum.filter(fn s ->
+        s.enabled and dow in s.days and
+          Time.compare(time, s.time_of_day) != :lt and
+          s.last_run_on != today
+      end)
+      |> Enum.reduce(0, fn s, acc ->
+        case materialize_one(s, today) do
+          :ok   -> acc + 1
+          :skip -> acc
+        end
+      end)
+
+    {:ok, count}
+  end
+
+  # Create the real task + bump last_run_on for one schedule. Best-effort:
+  # a failure logs and is swallowed so other schedules still run.
+  defp materialize_one(%ScheduledTask{} = s, today) do
+    with {:ok, _task} <-
+           create_task(%{
+             title:       s.title,
+             description: s.description,
+             priority:    s.priority,
+             due_on:      today
+           }),
+         {:ok, _sched} <- update_scheduled(s, %{last_run_on: today}) do
+      :ok
+    else
+      err ->
+        Logger.warning("scheduled task #{s.id} failed to materialise: #{inspect(err)}")
+        :skip
+    end
+  end
 end

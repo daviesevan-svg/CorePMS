@@ -37,7 +37,8 @@ defmodule HospexWeb.DashboardLive do
         action_flash:        nil,
         task_drawer:         nil,
         task_menu_open:      false,
-        task_settings_drawer: false
+        task_settings_drawer: false,
+        schedule_form:       nil
       )
 
     {:ok, load_dashboard(socket)}
@@ -515,6 +516,111 @@ defmodule HospexWeb.DashboardLive do
     {:noreply, socket}
   end
 
+  # ── Scheduled tasks (recurring) ───────────────────────────────
+
+  def handle_event("new_schedule", _, socket) do
+    {:noreply, assign(socket, :schedule_form, blank_schedule_form(socket))}
+  end
+
+  def handle_event("edit_schedule", %{"id" => id_str}, socket) do
+    case Tasks.get_scheduled(to_int(id_str)) do
+      nil -> {:noreply, socket}
+      s ->
+        form = %{
+          id:          s.id,
+          title:       s.title || "",
+          description: s.description || "",
+          priority:    s.priority,
+          days:        MapSet.new(s.days),
+          time:        format_time(s.time_of_day),
+          error:       nil
+        }
+
+        {:noreply, assign(socket, :schedule_form, form)}
+    end
+  end
+
+  def handle_event("cancel_schedule", _, socket) do
+    {:noreply, assign(socket, :schedule_form, nil)}
+  end
+
+  def handle_event("schedule_form_change", params, %{assigns: %{schedule_form: form}} = socket)
+      when not is_nil(form) do
+    form =
+      form
+      |> maybe_put_str(params, "title")
+      |> maybe_put_str(params, "description")
+      |> maybe_put_str(params, "priority")
+      |> maybe_put_str(params, "time")
+
+    {:noreply, assign(socket, :schedule_form, form)}
+  end
+
+  def handle_event("schedule_form_change", _, socket), do: {:noreply, socket}
+
+  def handle_event("toggle_schedule_day", %{"day" => day_str}, %{assigns: %{schedule_form: form}} = socket)
+      when not is_nil(form) do
+    day = to_int(day_str)
+
+    days =
+      if MapSet.member?(form.days, day) do
+        MapSet.delete(form.days, day)
+      else
+        MapSet.put(form.days, day)
+      end
+
+    {:noreply, assign(socket, :schedule_form, %{form | days: days})}
+  end
+
+  def handle_event("toggle_schedule_day", _, socket), do: {:noreply, socket}
+
+  def handle_event("save_schedule", _, %{assigns: %{schedule_form: form}} = socket)
+      when not is_nil(form) do
+    attrs = %{
+      title:       String.trim(form.title || ""),
+      description: nilify(form.description),
+      priority:    form.priority,
+      days:        form.days |> MapSet.to_list() |> Enum.sort(),
+      time_of_day: parse_time(form.time)
+    }
+
+    result =
+      case form.id do
+        nil -> Tasks.create_scheduled(attrs)
+        id  -> Tasks.update_scheduled(id, attrs)
+      end
+
+    case result do
+      {:ok, _sched} ->
+        {:noreply,
+         socket
+         |> assign(:schedule_form, nil)
+         |> load_dashboard()}
+
+      {:error, %Ecto.Changeset{} = cs} ->
+        {:noreply, assign(socket, :schedule_form, %{form | error: changeset_error(cs)})}
+
+      {:error, _} ->
+        {:noreply, assign(socket, :schedule_form, %{form | error: "Could not save schedule"})}
+    end
+  end
+
+  def handle_event("save_schedule", _, socket), do: {:noreply, socket}
+
+  def handle_event("delete_schedule", %{"id" => id_str}, socket) do
+    Tasks.delete_scheduled(to_int(id_str))
+    {:noreply, socket |> assign(:schedule_form, nil) |> load_dashboard()}
+  end
+
+  def handle_event("toggle_schedule_enabled", %{"id" => id_str}, socket) do
+    case Tasks.get_scheduled(to_int(id_str)) do
+      nil -> {:noreply, socket}
+      s ->
+        Tasks.set_scheduled_enabled(s.id, not s.enabled)
+        {:noreply, load_dashboard(socket)}
+    end
+  end
+
   defp load_dashboard(socket) do
     today = Date.utc_today()
     {room_groups, bookings, stays} = Bookings.load_calendar()
@@ -536,6 +642,7 @@ defmodule HospexWeb.DashboardLive do
     |> assign(:activity,   activity_feed())
     |> assign(:task_settings, settings)
     |> assign(:task_logs,  Tasks.list_logs(30))
+    |> assign(:scheduled_tasks, Tasks.list_scheduled())
     |> assign(:tasks,      tasks)
     # Re-derive the open drawer from fresh data (post-mutation refresh);
     # leaves it nil when no drawer is open. Does NOT touch drawer_tab,
@@ -841,6 +948,52 @@ defmodule HospexWeb.DashboardLive do
   defp blank_task_form(socket) do
     priority = socket.assigns.task_settings.default_priority
     %{title: "", description: "", priority: priority, due_on: "", booking_id: ""}
+  end
+
+  # ── Scheduled tasks (template + form helpers) ─────────────────
+
+  # A blank add-schedule form. Priority defaults to the saved task default;
+  # days starts empty; time defaults to 09:00.
+  defp blank_schedule_form(socket) do
+    %{
+      id:          nil,
+      title:       "",
+      description: "",
+      priority:    socket.assigns.task_settings.default_priority,
+      days:        MapSet.new(),
+      time:        "09:00",
+      error:       nil
+    }
+  end
+
+  # ISO-weekday chips, in display order (Mon … Sun).
+  @schedule_days [{1, "M"}, {2, "T"}, {3, "W"}, {4, "T"}, {5, "F"}, {6, "S"}, {7, "S"}]
+  defp schedule_days, do: @schedule_days
+
+  # "HH:MM" for a %Time{} (the form/input representation).
+  defp format_time(%Time{} = t), do: Calendar.strftime(t, "%H:%M")
+  defp format_time(_), do: ""
+
+  # Parse "HH:MM" (or "HH:MM:SS") from <input type="time"> to a %Time{};
+  # nil/blank/garbage → nil (lets the changeset flag the missing field).
+  defp parse_time(nil), do: nil
+  defp parse_time(""), do: nil
+
+  defp parse_time(s) when is_binary(s) do
+    iso = if String.length(s) == 5, do: s <> ":00", else: s
+
+    case Time.from_iso8601(iso) do
+      {:ok, t} -> t
+      {:error, _} -> nil
+    end
+  end
+
+  # Compact day summary for a schedule row, e.g. "Mon, Wed, Fri" or "Every day".
+  defp schedule_days_label([_, _, _, _, _, _, _]), do: "Every day"
+  defp schedule_days_label(days) do
+    days
+    |> Enum.sort()
+    |> Enum.map_join(", ", &Enum.at(~w(Mon Tue Wed Thu Fri Sat Sun), &1 - 1))
   end
 
   # ── Settings applied to the widget list ──────────────────────
