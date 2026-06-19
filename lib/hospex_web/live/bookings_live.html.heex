@@ -158,7 +158,7 @@
         <%= for b <- @visible_bookings do %>
           <% balance = b.total - b.paid %>
           <% avc = avatar_color(b.lead_guest) %>
-          <div class="bk-tr" phx-click="open_calendar" phx-value-id={b.id}>
+          <div class="bk-tr" phx-click="select_booking" phx-value-id={b.id}>
             <div class="bk-td bk-ref"><%= b.ref %></div>
             <div class="bk-td">
               <span class="bk-avatar" style={"background:#{elem(avc, 0)};color:#{elem(avc, 1)}"}><%= initials(b.lead_guest) %></span>
@@ -187,6 +187,31 @@
       </div>
     <% end %>
   </div>
+
+  <%!-- Booking drawer (opens in place — read-only view with payments,
+       notes, cancel and block settings). --%>
+  <.booking_drawer
+    selected_booking={@selected_booking}
+    drawer_tab={@drawer_tab}
+    expanded_stays={@expanded_stays}
+    rate_breakdown_open={@rate_breakdown_open}
+    notes_draft={@notes_draft}
+    block_edit={@block_edit}
+    more_menu_open={@more_menu_open}
+    focused_stay_id={@focused_stay_id}
+    editable={false}
+    back_label="Bookings"
+  />
+  <.txn_modal txn_form={@txn_form} />
+
+  <%!-- Lightweight transient flash. Auto-dismisses after ~3.5s via the
+       AutoDismiss hook; click to dismiss manually. --%>
+  <%= if @action_flash do %>
+    <div id="action-flash" class="action-flash" phx-hook="AutoDismiss" data-ms="3500" phx-click="dismiss_flash">
+      <span><%= @action_flash %></span>
+      <button class="af-x">×</button>
+    </div>
+  <% end %>
 </div>
 
 <style>
