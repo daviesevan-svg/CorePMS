@@ -2,10 +2,14 @@ defmodule HospexWeb.DashboardLive do
   use HospexWeb, :live_view
 
   import HospexWeb.BookingDrawerComponents
+  # Exclude helpers the dashboard already defines locally; the booking_form
+  # component resolves its own copies internally.
+  import HospexWeb.BookingFormComponents, except: [maybe_put: 3, maybe_put: 4, to_int: 1]
 
-  alias Hospex.Content.BookingDetails
+  alias Hospex.Content.{BookingDetails, Pricing}
   alias Hospex.Bookings
   alias Hospex.Tasks
+  alias HospexWeb.BookingForm
   alias HospexWeb.CheckinWizard
 
   @dow_short ~w(MON TUE WED THU FRI SAT SUN)
@@ -24,6 +28,7 @@ defmodule HospexWeb.DashboardLive do
       assign(socket,
         selected_booking:       nil,
         selected_booking_tasks: [],
+        new_booking:         nil,
         drawer_tab:          "details",
         expanded_stays:      MapSet.new(),
         rate_breakdown_open: MapSet.new(),
@@ -147,6 +152,70 @@ defmodule HospexWeb.DashboardLive do
   end
 
   def handle_event("cancel_booking", _, socket), do: {:noreply, socket}
+
+  # ── Booking form (create / edit / add room) ───────────────────
+  # Thin delegations to the shared HospexWeb.BookingForm transforms; the
+  # form markup is the shared <.booking_form> component.
+
+  def handle_event("open_new_booking", _, socket), do: {:noreply, BookingForm.open_new(socket)}
+
+  def handle_event("start_edit_booking", _, socket), do: {:noreply, BookingForm.start_edit(socket)}
+
+  def handle_event("switch_edit_stay", %{"stay_id" => sid}, socket) do
+    {:noreply, BookingForm.switch_stay(socket, to_int(sid))}
+  end
+
+  def handle_event("switch_edit_stay", _, socket), do: {:noreply, socket}
+
+  def handle_event("start_add_room", _, socket), do: {:noreply, BookingForm.start_add_room(socket)}
+
+  def handle_event("new_booking_cancel", _, socket), do: {:noreply, BookingForm.cancel(socket)}
+
+  def handle_event("new_booking_change", params, socket) do
+    {:noreply, BookingForm.apply_change(socket, params)}
+  end
+
+  def handle_event("toggle_nightly_expand", _, socket), do: {:noreply, BookingForm.toggle_nightly(socket)}
+
+  def handle_event("reset_nightly_rates", _, socket), do: {:noreply, BookingForm.reset_nightly(socket)}
+
+  def handle_event("set_nightly_rate", %{"date" => iso, "value" => v}, socket) do
+    {:noreply, BookingForm.set_nightly(socket, iso, v)}
+  end
+
+  def handle_event("set_nightly_rate", _, socket), do: {:noreply, socket}
+
+  def handle_event("nb_set_type", %{"id" => type_id}, socket) do
+    {:noreply, BookingForm.set_type(socket, type_id)}
+  end
+
+  def handle_event("nb_step", %{"field" => field, "dir" => dir}, socket) do
+    {:noreply, BookingForm.step(socket, field, dir)}
+  end
+
+  def handle_event("new_booking_save", _, socket) do
+    case BookingForm.save(socket, &load_dashboard(&1)) do
+      {:ok, socket, {:reopen_booking, booking_id}} ->
+        reopen_drawer_for_booking(socket, booking_id)
+
+      {:ok, socket, {:reopen_stay, stay_id}} ->
+        handle_event("select_booking", %{"id" => Integer.to_string(stay_id)}, socket)
+
+      {:error, socket} ->
+        {:noreply, socket}
+    end
+  end
+
+  # Re-open the detail drawer for a booking by its first stay (after an edit save).
+  defp reopen_drawer_for_booking(socket, booking_id) do
+    case Enum.find(socket.assigns.all_bookings, &(&1.id == booking_id)) do
+      %{stays: [stay | _]} ->
+        handle_event("select_booking", %{"id" => Integer.to_string(stay.id)}, socket)
+
+      _ ->
+        {:noreply, socket}
+    end
+  end
 
   # ── Transaction modal (payment / refund / charge) ─────────────
 
@@ -636,7 +705,8 @@ defmodule HospexWeb.DashboardLive do
     socket
     |> assign(today: today, date_label: date_label(today))
     |> assign(all_bookings: bookings, all_stays: stays,
-              room_groups: room_groups, all_rooms: all_rooms)
+              room_groups: room_groups, all_rooms: all_rooms,
+              plan: Pricing.primary_plan())
     |> assign(:arrivals,   arrivals(stays, today))
     |> assign(:departures, departures(stays, today))
     |> assign(:activity,   activity_feed())
