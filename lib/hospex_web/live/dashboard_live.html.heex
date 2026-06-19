@@ -456,6 +456,98 @@
         </label>
       </form>
 
+      <%!-- ── Scheduled tasks (recurring) ──────────────────────── --%>
+      <div class="task-dr-section">
+        <div class="sched-head">
+          <div class="task-dr-label">Scheduled tasks</div>
+          <%= if is_nil(@schedule_form) do %>
+            <button type="button" class="sched-add-btn" phx-click="new_schedule">+ Add scheduled task</button>
+          <% end %>
+        </div>
+
+        <%!-- Add / edit form --%>
+        <%= if @schedule_form do %>
+          <form class="sched-form" phx-change="schedule_form_change" phx-submit="save_schedule">
+            <%= if @schedule_form.error do %>
+              <div class="task-form-error"><%= @schedule_form.error %></div>
+            <% end %>
+
+            <label class="task-field">
+              <span class="task-field-label">Title</span>
+              <input type="text" name="title" class="task-input" autocomplete="off"
+                     value={@schedule_form.title} placeholder="e.g. Check pool chemicals" />
+            </label>
+
+            <label class="task-field">
+              <span class="task-field-label">Priority</span>
+              <select name="priority" class="task-input">
+                <option value="high" selected={@schedule_form.priority == "high"}>High</option>
+                <option value="med"  selected={@schedule_form.priority == "med"}>Medium</option>
+                <option value="low"  selected={@schedule_form.priority == "low"}>Low</option>
+              </select>
+            </label>
+
+            <div class="task-field">
+              <span class="task-field-label">Repeat on</span>
+              <div class="sched-day-chips">
+                <%= for {dow, letter} <- schedule_days() do %>
+                  <button type="button"
+                          class={"sched-day-chip #{if MapSet.member?(@schedule_form.days, dow), do: "active", else: ""}"}
+                          phx-click="toggle_schedule_day" phx-value-day={dow}
+                          aria-pressed={if MapSet.member?(@schedule_form.days, dow), do: "true", else: "false"}><%= letter %></button>
+                <% end %>
+              </div>
+            </div>
+
+            <label class="task-field">
+              <span class="task-field-label">Appear after</span>
+              <input type="time" name="time" class="task-input" value={@schedule_form.time} />
+            </label>
+
+            <div class="task-dr-actions">
+              <button type="button" class="row-action" phx-click="cancel_schedule">Cancel</button>
+              <button type="submit" class="row-action primary">Save</button>
+            </div>
+          </form>
+        <% end %>
+
+        <%!-- List --%>
+        <%= if @scheduled_tasks == [] and is_nil(@schedule_form) do %>
+          <div class="empty">No scheduled tasks yet.</div>
+        <% else %>
+          <div class="sched-list">
+            <%= for s <- @scheduled_tasks do %>
+              <div class={"sched-row #{if s.enabled, do: "", else: "disabled"}"}>
+                <div class="sched-row-main">
+                  <div class="sched-row-title"><%= s.title %></div>
+                  <div class="sched-row-chips">
+                    <%= for {dow, letter} <- schedule_days() do %>
+                      <span class={"sched-day-chip sm #{if dow in s.days, do: "active", else: ""}"}><%= letter %></span>
+                    <% end %>
+                    <span class="sched-row-time"><%= format_time(s.time_of_day) %></span>
+                  </div>
+                  <div class="sched-row-sub"><%= schedule_days_label(s.days) %> · <%= task_pri_label(s.priority) %></div>
+                </div>
+                <div class="sched-row-actions">
+                  <button type="button" class="toggle" data-on={if s.enabled, do: "1", else: "0"}
+                          title={if s.enabled, do: "Disable", else: "Enable"}
+                          phx-click="toggle_schedule_enabled" phx-value-id={s.id}></button>
+                  <button type="button" class="sched-icon" title="Edit"
+                          phx-click="edit_schedule" phx-value-id={s.id}>
+                    <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M11 2.5 13.5 5 5.5 13H3v-2.5Z"/></svg>
+                  </button>
+                  <button type="button" class="sched-icon danger" title="Delete"
+                          phx-click="delete_schedule" phx-value-id={s.id}
+                          data-confirm={"Delete scheduled task “#{s.title}”?"}>
+                    <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4.5h10M6 4.5V3h4v1.5M5 4.5l.5 8h5l.5-8"/></svg>
+                  </button>
+                </div>
+              </div>
+            <% end %>
+          </div>
+        <% end %>
+      </div>
+
       <%!-- Activity log --%>
       <div class="task-dr-section">
         <div class="task-dr-label">Activity</div>

@@ -30,7 +30,9 @@ config :hospex, Oban,
        {"* * * * *", Hospex.Channex.Workers.PollBookings},
        {"0 * * * *", Hospex.Channex.Workers.PushAri},
        # Daily retention sweep for the API-call log (feed: 7d, rest: 90d).
-       {"15 3 * * *", Hospex.Channex.Workers.PruneApiLogs}
+       {"15 3 * * *", Hospex.Channex.Workers.PruneApiLogs},
+       # Materialise recurring/scheduled tasks (idempotent; per-minute).
+       {"* * * * *", Hospex.Tasks.Workers.MaterializeScheduled}
      ]}
   ],
   queues: [
