@@ -2,9 +2,11 @@ defmodule HospexWeb.CalendarLive do
   use HospexWeb, :live_view
 
   import HospexWeb.BookingDrawerComponents
+  import HospexWeb.BookingFormComponents
 
-  alias Hospex.Content.{BookingDetails, Pricing, Property}
+  alias Hospex.Content.{BookingDetails, Pricing}
   alias Hospex.Bookings
+  alias HospexWeb.BookingForm
   alias HospexWeb.CheckinWizard
 
   @months_abbr ~w(Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec)
@@ -299,365 +301,68 @@ defmodule HospexWeb.CalendarLive do
   end
 
   def handle_event("start_create_booking", _, %{assigns: %{quick_create: qc}} = socket) when not is_nil(qc) do
-    end_date = Date.add(qc.start_date, qc.nights)
-    type_id  = type_id_for_room(socket, qc.room_id) || "std"
-    form     = new_booking_form(qc.start_date, end_date, type_id, qc.room_id)
-    {:noreply, assign(socket, quick_create: nil, new_booking: form)}
+    {:noreply, BookingForm.start_create(socket, qc)}
   end
 
   def handle_event("open_new_booking", _, socket) do
-    today = socket.assigns.today
-    form  = new_booking_form(Date.add(today, 14), Date.add(today, 16), "std", "auto")
-    {:noreply, assign(socket, new_booking: form, quick_create: nil)}
+    {:noreply, BookingForm.open_new(socket)}
   end
 
-  def handle_event("start_edit_booking", _, %{assigns: %{selected_booking: %{booking: b, rooms: rooms}}} = socket) do
-    focused = socket.assigns.focused_stay_id
-
-    # In a multi-room booking, prefer the stay the user clicked on
-    # (focused_stay_id). Fall back to the first stay.
-    rr =
-      Enum.find(rooms, fn r -> r.stay.id == focused end) ||
-        hd(rooms)
-
-    stay   = rr.stay
-    type_id = type_id_for_room(socket, stay.room_id) || "std"
-    nights  = stay.nights
-    # Per-stay subtotal if seeded data has it; otherwise split the booking
-    # total evenly across all stays. Rate per night derives from that.
-    stay_subtotal = Map.get(stay, :subtotal) || div(b.total, max(length(rooms), 1))
-    rate          = Map.get(b, :rate_night) || (if nights > 0, do: div(stay_subtotal, nights), else: 0)
-
-    form = %{
-      # Stay-specific dates so editing one room doesn't mangle the others.
-      start_date:        stay.check_in,
-      end_date:          Date.add(stay.check_in, stay.nights),
-      type_id:           type_id,
-      room_id:           stay.room_id,
-      rate_night:        rate,
-      cleaning_fee:      Map.get(b, :cleaning_fee) || 0,
-      tax_rate:          Map.get(b, :tax_rate) || Property.tax_rate(),
-      prices_include:    Property.prices_include_tax(),
-      user_touched_rate: true,
-      lead_name:         b.lead_guest,
-      email:             Map.get(b, :email) || "",
-      phone:             Map.get(b, :phone) || "",
-      country:           Map.get(b, :country) || "DE",
-      channel:           Map.get(b, :src) || "direct",
-      requests:          Map.get(b, :requests) || "",
-      # If the stay's guest matches the booker, leave room_guest blank
-      # so the placeholder shows "Same as lead contact".
-      room_guest:        (if stay.guest_name == b.lead_guest, do: "", else: stay.guest_name),
-      adults:            stay.adults,
-      kids:              stay.kids,
-      edit_id:           b.id,
-      # New: the specific stay being edited (only set in edit mode).
-      edit_stay_id:      stay.id,
-      nightly_rates:     Map.get(stay, :nightly_rates) || [],
-      nightly_expanded:  false,
-      add_to_id:         nil,
-      # Remember the room the booking was originally in so the UI can
-      # label its type "Current room" instead of misleading free counts.
-      original_room_id:  stay.room_id,
-      stay_edits:        %{}
-    } |> snapshot_current_stay()
-
-    # Hide the detail drawer while editing so only one drawer is visible.
-    # We'll re-open it from new_booking_save.
-    {:noreply,
-     assign(socket,
-       new_booking: form,
-       more_menu_open: false,
-       selected_booking: nil,
-       focused_stay_id: nil,
-       expanded_stays: MapSet.new()
-     )}
+  def handle_event("start_edit_booking", _, socket) do
+    {:noreply, BookingForm.start_edit(socket)}
   end
 
-  def handle_event("start_edit_booking", _, socket), do: {:noreply, socket}
-
-  def handle_event("switch_edit_stay", %{"stay_id" => sid},
-                   %{assigns: %{new_booking: %{edit_id: bid} = f}} = socket)
-      when not is_nil(bid) do
-    new_stay_id = String.to_integer(sid)
-
-    cond do
-      new_stay_id == f.edit_stay_id ->
-        {:noreply, socket}
-
-      true ->
-        booking = Enum.find(socket.assigns.all_bookings, &(&1.id == bid))
-
-        if booking do
-          new_f =
-            f
-            |> snapshot_current_stay()
-            |> hydrate_stay(new_stay_id, booking, socket)
-
-          {:noreply, assign(socket, :new_booking, new_f)}
-        else
-          {:noreply, socket}
-        end
-    end
+  def handle_event("switch_edit_stay", %{"stay_id" => sid}, socket) do
+    {:noreply, BookingForm.switch_stay(socket, String.to_integer(sid))}
   end
 
   def handle_event("switch_edit_stay", _, socket), do: {:noreply, socket}
 
   def handle_event("start_add_room", _, socket) do
-    booking =
-      case socket.assigns do
-        %{selected_booking: %{booking: b}} -> b
-        %{new_booking: %{edit_id: id}} when not is_nil(id) ->
-          Enum.find(socket.assigns.all_bookings, &(&1.id == id))
-        _ -> nil
-      end
-
-    case booking do
-      nil -> {:noreply, socket}
-
-      b ->
-        today = socket.assigns.today
-        form  = new_booking_form(b.check_in, b.check_out, "std", "auto")
-        # Add-room mode: lead contact is the existing booking's lead
-        # (informational, not edited). Room guest is what the user fills in.
-        form  = %{form | lead_name: b.lead_guest, add_to_id: b.id}
-
-        # Fall back to today if the booking is far in the past.
-        form =
-          if Date.compare(form.start_date, today) == :lt do
-            %{form |
-              start_date: today,
-              end_date:   Date.add(today, max(1, Date.diff(b.check_out, b.check_in)))
-            }
-          else
-            form
-          end
-
-        {:noreply,
-         assign(socket,
-           new_booking: form,
-           selected_booking: nil,
-           focused_stay_id: nil,
-           expanded_stays: MapSet.new()
-         )}
-    end
+    {:noreply, BookingForm.start_add_room(socket)}
   end
 
   def handle_event("new_booking_cancel", _, socket) do
-    {:noreply, assign(socket, :new_booking, nil)}
+    {:noreply, BookingForm.cancel(socket)}
   end
 
-  def handle_event("new_booking_change", params, %{assigns: %{new_booking: f}} = socket)
-      when not is_nil(f) do
-    target =
-      case params["_target"] do
-        [t | _] -> t
-        t when is_binary(t) -> t
-        _ -> nil
-      end
-
-    f =
-      f
-      |> maybe_put_date(params, "start_date")
-      |> maybe_put_date(params, "end_date")
-      |> maybe_put(params, "room_id")
-      |> maybe_put(params, "lead_name")
-      |> maybe_put(params, "room_guest")
-      |> maybe_put(params, "email")
-      |> maybe_put(params, "phone")
-      |> maybe_put(params, "country")
-      |> maybe_put(params, "channel")
-      |> maybe_put(params, "requests")
-      |> maybe_put_rate_night(params, target)
-      |> maybe_put_money(params, "cleaning_fee", :cleaning_fee)
-      |> maybe_put_money(params, "tax_rate", :tax_rate)
-      |> maybe_flag_touched_rate(target)
-      |> normalize_dates()
-      |> maybe_reprice(socket.assigns.plan, target)
-      |> snapshot_current_stay()
-
-    {:noreply, assign(socket, :new_booking, f)}
+  def handle_event("new_booking_change", params, socket) do
+    {:noreply, BookingForm.apply_change(socket, params)}
   end
 
-  def handle_event("toggle_nightly_expand", _, %{assigns: %{new_booking: f}} = socket)
-      when not is_nil(f) do
-    expanded? = not Map.get(f, :nightly_expanded, false)
-    nights = nb_nights(f)
-
-    rates =
-      cond do
-        expanded? and Map.get(f, :nightly_rates, []) == [] and nights > 0 ->
-          # Prefill: one row per night at the current flat rate.
-          for i <- 0..(nights - 1) do
-            %{date: Date.add(f.start_date, i), amount: f.rate_night}
-          end
-
-        true ->
-          Map.get(f, :nightly_rates, [])
-      end
-
-    f = f
-        |> Map.put(:nightly_expanded, expanded?)
-        |> Map.put(:nightly_rates, rates)
-        |> snapshot_current_stay()
-
-    {:noreply, assign(socket, :new_booking, f)}
+  def handle_event("toggle_nightly_expand", _, socket) do
+    {:noreply, BookingForm.toggle_nightly(socket)}
   end
 
-  def handle_event("reset_nightly_rates", _, %{assigns: %{new_booking: f}} = socket)
-      when not is_nil(f) do
-    f = f
-        |> Map.put(:nightly_rates, [])
-        |> Map.put(:nightly_expanded, false)
-        |> snapshot_current_stay()
-
-    {:noreply, assign(socket, :new_booking, f)}
+  def handle_event("reset_nightly_rates", _, socket) do
+    {:noreply, BookingForm.reset_nightly(socket)}
   end
 
-  def handle_event("set_nightly_rate", %{"date" => iso, "value" => v}, %{assigns: %{new_booking: f}} = socket)
-      when not is_nil(f) do
-    with {:ok, date} <- Date.from_iso8601(iso) do
-      amount = to_int(v)
-      rates = Map.get(f, :nightly_rates, [])
-
-      rates =
-        case Enum.find_index(rates, fn r -> r.date == date end) do
-          nil -> [%{date: date, amount: amount} | rates] |> Enum.sort_by(& &1.date, Date)
-          idx -> List.update_at(rates, idx, &Map.put(&1, :amount, amount))
-        end
-
-      f = f |> Map.put(:nightly_rates, rates) |> snapshot_current_stay()
-      {:noreply, assign(socket, :new_booking, f)}
-    else
-      _ -> {:noreply, socket}
-    end
+  def handle_event("set_nightly_rate", %{"date" => iso, "value" => v}, socket) do
+    {:noreply, BookingForm.set_nightly(socket, iso, v)}
   end
 
   def handle_event("set_nightly_rate", _, socket), do: {:noreply, socket}
 
-  def handle_event("nb_set_type", %{"id" => type_id}, %{assigns: %{new_booking: f}} = socket)
-      when not is_nil(f) do
-    rate =
-      if f.user_touched_rate,
-        do: f.rate_night,
-        else: nb_rate(socket.assigns.plan, type_id, f.start_date, f.adults, f.kids)
-
-    f = %{f | type_id: type_id, room_id: "auto", rate_night: rate} |> snapshot_current_stay()
-    {:noreply, assign(socket, :new_booking, f)}
+  def handle_event("nb_set_type", %{"id" => type_id}, socket) do
+    {:noreply, BookingForm.set_type(socket, type_id)}
   end
 
-  def handle_event("nb_step", %{"field" => field, "dir" => dir}, %{assigns: %{new_booking: f}} = socket)
-      when not is_nil(f) do
-    delta = if dir == "up", do: 1, else: -1
-    {min_v, max_v} = if field == "adults", do: {1, 8}, else: {0, 6}
-    key = String.to_existing_atom(field)
-    new_v = f |> Map.get(key) |> Kernel.+(delta) |> max(min_v) |> min(max_v)
-    f = Map.put(f, key, new_v)
-
-    # Re-price for the new party size unless the staff set a manual rate
-    # or per-night rates are in play (those are the source of truth then).
-    f =
-      if f.user_touched_rate or Map.get(f, :nightly_rates, []) != [] do
-        f
-      else
-        %{f | rate_night: nb_rate(socket.assigns.plan, f.type_id, f.start_date, f.adults, f.kids)}
-      end
-
-    f = snapshot_current_stay(f)
-    {:noreply, assign(socket, :new_booking, f)}
+  def handle_event("nb_step", %{"field" => field, "dir" => dir}, socket) do
+    {:noreply, BookingForm.step(socket, field, dir)}
   end
 
-  def handle_event("new_booking_save", _, %{assigns: %{new_booking: f}} = socket)
-      when not is_nil(f) do
-    avail  = availability_for_type(socket, f.type_id, f.start_date, f.end_date, exclude_booking_id: f.edit_id)
-    nights = Date.diff(f.end_date, f.start_date)
+  def handle_event("new_booking_save", _, socket) do
+    case BookingForm.save(socket, &reload_bookings(&1)) do
+      {:ok, socket, {:reopen_booking, booking_id}} ->
+        reopen_drawer_for_booking(socket, booking_id)
 
-    cond do
-      # Lead contact is required for new + edit. Add-room reuses the
-      # existing booking's lead so the field is informational.
-      is_nil(f.add_to_id) and String.trim(f.lead_name) == "" ->
-        {:noreply, assign(socket, :action_flash, "Lead contact name is required")}
+      {:ok, socket, {:reopen_stay, stay_id}} ->
+        # Re-open the detail drawer, focused on the stay.
+        handle_event("select_booking", %{"id" => Integer.to_string(stay_id)}, socket)
 
-      nights < 1 ->
-        {:noreply, assign(socket, :action_flash, "Check-out must be after check-in")}
-
-      not room_ok?(f, avail) ->
-        {:noreply, assign(socket, :action_flash, "Select a room with availability")}
-
-      true ->
-        final_room_id =
-          if f.room_id == "auto" do
-            avail.by_room |> Enum.find(fn {_id, st} -> st == :free end) |> elem(0)
-          else
-            f.room_id
-          end
-
-        cond do
-          # Edit mode — patch booking-level fields once, and every staged
-          # stay's per-room data. Other stays (untouched) stay as-is.
-          not is_nil(f.edit_id) ->
-            # Snapshot the currently-shown stay one last time before save.
-            f = snapshot_current_stay(f)
-
-            booking_attrs = %{
-              lead_guest:   f.lead_name,
-              src:          f.channel,
-              email:        f.email,
-              phone:        f.phone,
-              country:      f.country,
-              requests:     f.requests,
-              rate_night:   f.rate_night,
-              cleaning_fee: f.cleaning_fee,
-              tax_rate:     f.tax_rate
-            }
-
-            stays_attrs =
-              Enum.into(f.stay_edits, %{}, fn {stay_id, sf} ->
-                {stay_id, build_stay_save_attrs(socket, f, sf)}
-              end)
-
-            :ok = Bookings.update_multi_stay_booking(f.edit_id, booking_attrs, stays_attrs)
-
-            socket =
-              socket
-              |> reload_bookings()
-              |> assign(new_booking: nil,
-                        action_flash: "✓ Booking updated · #{map_size(stays_attrs)} room#{if map_size(stays_attrs) != 1, do: "s"} saved")
-
-            reopen_drawer_for_booking(socket, f.edit_id)
-
-          # Add-room mode — append another stay onto an existing booking.
-          not is_nil(f.add_to_id) ->
-            attrs = %{
-              room_id:    final_room_id,
-              guest_name: effective_room_guest(f),
-              adults:     f.adults,
-              kids:       f.kids,
-              check_in:   f.start_date,
-              check_out:  Date.add(f.start_date, nights),
-              subtotal:   nb_total(f)
-            }
-            {:ok, new_stay_id} = Bookings.add_stay_to_booking(f.add_to_id, attrs)
-
-            socket =
-              socket
-              |> reload_bookings()
-              |> assign(new_booking: nil, action_flash: "✓ Room added to booking")
-
-            # Re-open the detail drawer, focused on the new stay.
-            handle_event("select_booking", %{"id" => Integer.to_string(new_stay_id)}, socket)
-
-          # Fresh booking.
-          true ->
-            {socket, new_stay_id} = add_new_booking(socket, f, nights, final_room_id)
-
-            socket =
-              socket
-              |> assign(new_booking: nil,
-                        action_flash: "✓ Booking created · opening for edit")
-
-            handle_event("select_booking", %{"id" => Integer.to_string(new_stay_id)}, socket)
-        end
+      {:error, socket} ->
+        {:noreply, socket}
     end
   end
 
@@ -1166,389 +871,11 @@ defmodule HospexWeb.CalendarLive do
 
   # ── Drag-create / Block-room ────────────────────────────────────
 
+  # NOTE: The new-booking / edit / add-room form, its pure helpers, and
+  # the socket transforms it delegates to now live in
+  # `HospexWeb.BookingFormComponents` (component + helpers, imported above)
+  # and `HospexWeb.BookingForm` (socket→socket transforms).
 
-  # Base nightly rates per room-type group. Used as suggestions; the user
-  # can still override the rate field freely.
-  @nb_base_rates %{"std" => 170, "dlx" => 230, "sui" => 350, "fam" => 260}
-
-  @nb_channels [
-    {"direct",  "Direct / Walk-in"},
-    {"booking", "Booking.com"},
-    {"airbnb",  "Airbnb"},
-    {"expedia", "Expedia"}
-  ]
-
-  @nb_countries [
-    {"DE", "Germany"}, {"FR", "France"}, {"ES", "Spain"}, {"IT", "Italy"},
-    {"UK", "United Kingdom"}, {"US", "United States"}, {"JP", "Japan"},
-    {"BR", "Brazil"}, {"SE", "Sweden"}, {"NL", "Netherlands"}, {"PT", "Portugal"}
-  ]
-
-  def nb_channels,  do: @nb_channels
-  def nb_countries, do: @nb_countries
-  def nb_base_rate(type_id), do: Map.get(@nb_base_rates, type_id, 170)
-
-  @doc """
-  Nightly rate for a new-booking row from the real pricing model:
-  per-person base rate for `adults` at the room type's base occupancy
-  (+ `child_fee × kids`). Falls back to the mock base rate when the
-  room type isn't priced by the plan (e.g. the manual "std" placeholder).
-  """
-  def nb_rate(plan, type_id, %Date{} = date, adults, kids) do
-    case plan && Pricing.nightly_rate(plan, type_id, date, max(adults, 1)) do
-      {:ok, base} -> base + kids * Pricing.child_fee(plan)
-      _ -> nb_base_rate(type_id)
-    end
-  end
-
-
-  # Open the new-booking drawer pre-filled with the selected booking's
-  # values, marked with `edit_id` so Save updates instead of creates.
-
-  # Switch the edit form to a different stay of the same booking.
-  # Staged edits to other stays are preserved — Save applies them all.
-
-  # Open the new-booking drawer to add a second/third room to an existing
-  # booking. Reuses the same form; Save calls add_stay_to_booking/2.
-  #
-  # Entry points: the detail drawer's "+ Add room" button (reads from
-  # @selected_booking) AND the edit drawer's "Add another room" link
-  # (reads from @new_booking.edit_id — discards unsaved edits).
-
-
-  # ── New-booking helpers ─────────────────────────────────────────
-
-  defp new_booking_form(start_date, end_date, type_id, room_id) do
-    %{
-      start_date:        start_date,
-      end_date:          end_date,
-      type_id:           type_id,
-      room_id:           room_id || "auto",
-      rate_night:        nb_rate(Pricing.primary_plan(), type_id, start_date, 2, 0),
-      cleaning_fee:      0,
-      tax_rate:          Property.tax_rate(),
-      prices_include:    Property.prices_include_tax(),
-      user_touched_rate: false,
-      # Lead contact (the booker — applies to the whole booking).
-      lead_name:         "",
-      email:             "",
-      phone:             "",
-      country:           "DE",
-      channel:           "direct",
-      requests:          "",
-      # Per-stay room guest (the actual occupant of *this* room — falls
-      # back to lead_name when blank).
-      room_guest:        "",
-      adults:            2,
-      kids:              0,
-      edit_id:           nil,
-      edit_stay_id:      nil,
-      nightly_rates:     [],
-      nightly_expanded:  false,
-      add_to_id:         nil,
-      original_room_id:  nil,
-      # Multi-room edit: staged per-stay form data so the user can edit
-      # several rooms and save them all at once.  Keyed by stay_id.
-      stay_edits:        %{}
-    }
-  end
-
-  # Fields on the form that are *per-stay* (rest are booking-level).
-  @stay_form_fields ~w(start_date end_date type_id room_id rate_night
-                       room_guest adults kids original_room_id
-                       nightly_rates nightly_expanded)a
-
-  # Persist the form's currently-shown per-stay values into stay_edits
-  # so they survive switching to a different stay.
-  defp snapshot_current_stay(%{edit_id: nil} = f), do: f
-  defp snapshot_current_stay(%{edit_stay_id: nil} = f), do: f
-  defp snapshot_current_stay(f) do
-    attrs = Map.take(f, @stay_form_fields)
-    %{f | stay_edits: Map.put(f.stay_edits, f.edit_stay_id, attrs)}
-  end
-
-  # Replace the form's per-stay fields with values for `stay_id`, pulling
-  # from staged edits if present, otherwise from the saved stay.
-  defp hydrate_stay(f, stay_id, booking, socket) do
-    case Map.get(f.stay_edits, stay_id) do
-      nil ->
-        stay = Enum.find(booking.stays, &(&1.id == stay_id))
-        type_id = type_id_for_room(socket, stay.room_id) || "std"
-        stay_subtotal = Map.get(stay, :subtotal) || div(booking.total, max(length(booking.stays), 1))
-        rate          = if stay.nights > 0, do: div(stay_subtotal, stay.nights), else: 0
-
-        Map.merge(f, %{
-          edit_stay_id:     stay_id,
-          start_date:       stay.check_in,
-          end_date:         Date.add(stay.check_in, stay.nights),
-          type_id:          type_id,
-          room_id:          stay.room_id,
-          rate_night:       rate,
-          room_guest:       (if stay.guest_name == booking.lead_guest, do: "", else: stay.guest_name),
-          adults:           stay.adults,
-          kids:             stay.kids,
-          original_room_id: stay.room_id,
-          nightly_rates:    Map.get(stay, :nightly_rates) || [],
-          nightly_expanded: false
-        })
-
-      staged ->
-        f |> Map.merge(staged) |> Map.put(:edit_stay_id, stay_id)
-    end
-  end
-
-  defp type_id_for_room(socket, room_id) do
-    Enum.find_value(socket.assigns.room_groups, fn g ->
-      if Enum.any?(g.rooms, &(&1.id == room_id)), do: g.id
-    end)
-  end
-
-  # Snap end forward if it ever lands on/before start, to keep nights >= 1.
-  defp normalize_dates(f) do
-    if Date.compare(f.start_date, f.end_date) != :lt do
-      %{f | end_date: Date.add(f.start_date, 1)}
-    else
-      f
-    end
-  end
-
-  defp maybe_flag_touched_rate(f, "rate_night"), do: %{f | user_touched_rate: true}
-  defp maybe_flag_touched_rate(f, _),            do: f
-
-  # Re-price the flat nightly rate when the stay dates change (seasonal/
-  # dow + occupancy), unless staff set a manual rate or per-night rates
-  # are the source of truth.
-  defp maybe_reprice(f, plan, target) when target in ["start_date", "end_date"] do
-    if f.user_touched_rate or Map.get(f, :nightly_rates, []) != [] do
-      f
-    else
-      %{f | rate_night: nb_rate(plan, f.type_id, f.start_date, f.adults, f.kids)}
-    end
-  end
-
-  defp maybe_reprice(f, _plan, _target), do: f
-
-  # Per-night rates are the source of truth while active — silently ignore
-  # edits to the flat field. The UI also visually disables it.
-  defp maybe_put_rate_night(%{nightly_rates: [_ | _]} = f, _params, "rate_night"), do: f
-  defp maybe_put_rate_night(f, params, _target), do: maybe_put_money(f, params, "rate_night", :rate_night)
-
-  defp maybe_put_money(map, params, key, store_key) do
-    case Map.fetch(params, key) do
-      {:ok, v} -> Map.put(map, store_key, to_int(v))
-      :error   -> map
-    end
-  end
-
-  @doc """
-  Computes, for a given room-type group, which rooms are free vs. taken in
-  the picked date range. Returns `%{avail: n, total: n, by_room: %{room_id => :free | :taken}}`.
-
-  Called both from event handlers (with a `%Socket{}`) and from the heex
-  template (with a plain assigns map), so it accepts either.
-
-  `opts` may include `exclude_booking_id:` so an edit form doesn't count
-  the booking it's editing as a conflict against itself.
-  """
-  def availability_for_type(socket_or_assigns, type_id, start_date, end_date, opts \\ []) do
-    assigns =
-      case socket_or_assigns do
-        %{assigns: a} -> a
-        a            -> a
-      end
-
-    exclude_id = Keyword.get(opts, :exclude_booking_id)
-    group = Enum.find(assigns.room_groups, &(&1.id == type_id))
-
-    if is_nil(group) do
-      %{avail: 0, total: 0, by_room: %{}}
-    else
-      taken_ids =
-        assigns.all_stays
-        |> Enum.filter(fn s ->
-          co = Date.add(s.check_in, s.nights)
-          s.status != :cancelled and
-            s.booking_id != exclude_id and
-            Date.compare(s.check_in, end_date) == :lt and
-            Date.compare(co, start_date) == :gt
-        end)
-        |> Enum.map(& &1.room_id)
-        |> MapSet.new()
-
-      by_room =
-        Map.new(group.rooms, fn r ->
-          {r.id, if(MapSet.member?(taken_ids, r.id), do: :taken, else: :free)}
-        end)
-
-      avail = Enum.count(by_room, fn {_id, st} -> st == :free end)
-      %{avail: avail, total: length(group.rooms), by_room: by_room}
-    end
-  end
-
-  # In edit mode the original room is always valid for save (the booking
-  # already lives there). Otherwise: auto needs ≥1 free of the type, or
-  # the specific room must be free.
-  defp room_ok?(%{room_id: rid, original_room_id: rid}, _avail) when not is_nil(rid), do: true
-  defp room_ok?(%{room_id: "auto"}, %{avail: a}), do: a > 0
-  defp room_ok?(%{room_id: rid}, %{by_room: br}), do: Map.get(br, rid) == :free
-
-  def nb_subtotal(f) do
-    case Map.get(f, :nightly_rates, []) do
-      [] -> f.rate_night * max(1, Date.diff(f.end_date, f.start_date))
-      rows -> Enum.sum(Enum.map(rows, & &1.amount))
-    end
-  end
-  # Tax-inclusive: the entered rate already includes tax, so it's the portion
-  # backed out of the gross. Tax-exclusive: it's added on top.
-  def nb_tax(f) do
-    gross = nb_subtotal(f) + f.cleaning_fee
-
-    if Map.get(f, :prices_include, false) do
-      round(gross * f.tax_rate / (100 + f.tax_rate))
-    else
-      round(gross * f.tax_rate / 100)
-    end
-  end
-
-  def nb_total(f) do
-    base = nb_subtotal(f) + f.cleaning_fee
-    if Map.get(f, :prices_include, false), do: base, else: base + nb_tax(f)
-  end
-  def nb_nights(f),     do: max(1, Date.diff(f.end_date, f.start_date))
-
-  @doc """
-  Returns `[{date, amount}, ...]` covering every night of the stay.
-  Pulls from `nightly_rates` where present, falls back to the flat rate.
-  Used by the template to render the per-night expander.
-  """
-  def nb_nightly_rows(f, nights) do
-    by_date =
-      f
-      |> Map.get(:nightly_rates, [])
-      |> Map.new(fn r -> {r.date, r.amount} end)
-
-    for i <- 0..(nights - 1) do
-      d = Date.add(f.start_date, i)
-      {d, Map.get(by_date, d, f.rate_night)}
-    end
-  end
-
-  def nb_avg_rate(f) do
-    case Map.get(f, :nightly_rates, []) do
-      [] -> f.rate_night
-      rows ->
-        n = length(rows)
-        div(Enum.sum(Enum.map(rows, & &1.amount)), max(n, 1))
-    end
-  end
-
-  def nb_nightly_active?(f), do: Map.get(f, :nightly_rates, []) != []
-
-  defp add_new_booking(socket, f, nights, room_id) do
-    attrs = %{
-      lead_guest:   f.lead_name,
-      guest_name:   effective_room_guest(f),
-      src:          f.channel,
-      total:        nb_total(f),
-      check_in:     f.start_date,
-      check_out:    Date.add(f.start_date, nights),
-      room_id:      room_id,
-      adults:       f.adults,
-      kids:         f.kids,
-      email:        f.email,
-      phone:        f.phone,
-      country:      f.country,
-      requests:     f.requests,
-      rate_night:   f.rate_night,
-      cleaning_fee: f.cleaning_fee,
-      tax_rate:     f.tax_rate
-    }
-
-    {:ok, _view, stay_id} = Bookings.create_simple_booking(attrs)
-    {reload_bookings(socket), stay_id}
-  end
-
-  # Room guest defaults to the lead contact when left blank.
-  defp effective_room_guest(%{room_guest: rg, lead_name: lead}) do
-    case String.trim(rg) do
-      "" -> lead
-      n  -> n
-    end
-  end
-
-  # Build per-stay save attrs from a staged stay_form map. Resolves
-  # "auto" room selection against availability (excluding the booking
-  # being edited so it doesn't self-conflict) and computes that stay's
-  # subtotal as rate × nights.
-  defp build_stay_save_attrs(socket, f, sf) do
-    nights = Date.diff(sf.end_date, sf.start_date)
-    room_id =
-      if sf.room_id == "auto" do
-        avail =
-          availability_for_type(socket, sf.type_id, sf.start_date, sf.end_date,
-                                exclude_booking_id: f.edit_id)
-        avail.by_room
-        |> Enum.find(fn {_id, st} -> st == :free end)
-        |> case do
-          {id, _} -> id
-          _       -> sf.original_room_id
-        end
-      else
-        sf.room_id
-      end
-
-    # Trim/extend nightly_rates so it covers exactly this stay's nights.
-    nightly = normalize_nightly_rates(Map.get(sf, :nightly_rates, []), sf.start_date, nights)
-
-    subtotal =
-      case nightly do
-        [] -> sf.rate_night * max(nights, 1)
-        rows -> Enum.sum(Enum.map(rows, & &1.amount))
-      end
-
-    %{
-      room_id:    room_id,
-      guest_name: effective_room_guest(%{room_guest: Map.get(sf, :room_guest, ""), lead_name: f.lead_name}),
-      adults:     sf.adults,
-      kids:       sf.kids,
-      check_in:   sf.start_date,
-      check_out:  sf.end_date,
-      subtotal:   subtotal,
-      nightly_rates: nightly
-    }
-  end
-
-  # Constrain nightly_rates to the night-set of [start_date, +nights).
-  # Drops rows outside that range; never invents new ones.
-  defp normalize_nightly_rates([], _start, _nights), do: []
-  defp normalize_nightly_rates(rows, start_date, nights) do
-    valid_dates =
-      0..(nights - 1)
-      |> Enum.map(&Date.add(start_date, &1))
-      |> MapSet.new()
-
-    rows
-    |> Enum.filter(fn r ->
-      case Map.get(r, :date) || Map.get(r, "date") do
-        %Date{} = d -> MapSet.member?(valid_dates, d)
-        s when is_binary(s) ->
-          case Date.from_iso8601(s) do
-            {:ok, d} -> MapSet.member?(valid_dates, d)
-            _ -> false
-          end
-        _ -> false
-      end
-    end)
-    |> Enum.map(&normalize_nightly_row/1)
-    |> Enum.sort_by(& &1.date, Date)
-  end
-
-  defp normalize_nightly_row(%{date: %Date{} = d, amount: a}),
-    do: %{date: d, amount: to_int(a)}
-  defp normalize_nightly_row(%{"date" => d, "amount" => a}) when is_binary(d) do
-    {:ok, date} = Date.from_iso8601(d)
-    %{date: date, amount: to_int(a)}
-  end
 
   # Re-fetch the windowed bookings/stays from the DB and re-derive view
   # state. Called after any write the current LV initiated, after PubSub
@@ -1759,16 +1086,7 @@ defmodule HospexWeb.CalendarLive do
     dt
   end
 
-  defp maybe_put_date(map, params, key) do
-    case Map.fetch(params, key) do
-      {:ok, v} ->
-        case Date.from_iso8601(v) do
-          {:ok, d} -> Map.put(map, String.to_existing_atom(key), d)
-          _        -> map
-        end
-      :error -> map
-    end
-  end
+  # `maybe_put_date/3` is imported from HospexWeb.BookingFormComponents.
 
   defp maybe_put_naive(map, params, key) do
     case Map.fetch(params, key) do
@@ -1784,24 +1102,8 @@ defmodule HospexWeb.CalendarLive do
 
   # ── Check-in wizard ─────────────────────────────────────────────
 
-
-  defp maybe_put(map, params, key, transform \\ & &1) do
-    case Map.fetch(params, key) do
-      {:ok, v} -> Map.put(map, String.to_existing_atom(key), transform.(v))
-      :error   -> map
-    end
-  end
-
-  # Client params — never raise on junk ("1.5", "1e3", crafted messages).
-  defp to_int(value) when is_binary(value) do
-    case Integer.parse(value) do
-      {n, _rest} -> n
-      :error     -> 0
-    end
-  end
-
-  defp to_int(value) when is_integer(value), do: value
-  defp to_int(_), do: 0
+  # `maybe_put/3,4` and `to_int/1` are imported from
+  # HospexWeb.BookingFormComponents.
 
   defp complete_checkin(socket, w) do
     if CheckinWizard.payment_step?(w), do: apply_wizard_payment(w, socket.assigns.all_stays)
