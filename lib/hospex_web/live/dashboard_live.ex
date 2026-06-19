@@ -36,7 +36,8 @@ defmodule HospexWeb.DashboardLive do
         arrival_menu:        nil,
         action_flash:        nil,
         task_drawer:         nil,
-        task_menu_open:      false
+        task_menu_open:      false,
+        task_settings_drawer: false
       )
 
     {:ok, load_dashboard(socket)}
@@ -329,14 +330,14 @@ defmodule HospexWeb.DashboardLive do
 
   def handle_event("new_task", _, socket) do
     {:noreply, assign(socket,
-      task_drawer: %{mode: :new, id: nil, form: blank_task_form(), error: nil, booking_query: ""},
+      task_drawer: %{mode: :new, id: nil, form: blank_task_form(socket), error: nil, booking_query: ""},
       task_menu_open: false)}
   end
 
   # "+ Add" from the booking drawer's Tasks section: close the booking drawer
   # and open a new-task form with this booking pre-linked.
   def handle_event("new_task_for_booking", %{"booking-id" => id_str}, socket) do
-    form = %{blank_task_form() | booking_id: Integer.to_string(to_int(id_str))}
+    form = %{blank_task_form(socket) | booking_id: Integer.to_string(to_int(id_str))}
 
     {:noreply,
      socket
@@ -483,10 +484,48 @@ defmodule HospexWeb.DashboardLive do
      |> load_dashboard()}
   end
 
+  # ── Task settings drawer ──────────────────────────────────────
+
+  def handle_event("open_task_settings", _, socket) do
+    {:noreply, assign(socket, :task_settings_drawer, true)}
+  end
+
+  def handle_event("close_task_settings", _, socket) do
+    {:noreply, assign(socket, :task_settings_drawer, false)}
+  end
+
+  # phx-change on the settings form — auto-saves each control. A checkbox that
+  # is off omits its param entirely, so we read show_completed via the hidden
+  # "false" companion (params always carry the hidden one).
+  def handle_event("save_task_settings", params, socket) do
+    current = socket.assigns.task_settings
+
+    attrs = %{
+      default_priority: Map.get(params, "default_priority", current.default_priority),
+      sort_by:          Map.get(params, "sort_by", current.sort_by),
+      show_completed:   checkbox?(Map.get(params, "show_completed"))
+    }
+
+    socket =
+      case Tasks.update_settings(attrs) do
+        {:ok, _settings} -> load_dashboard(socket)
+        {:error, _cs}    -> socket
+      end
+
+    {:noreply, socket}
+  end
+
   defp load_dashboard(socket) do
     today = Date.utc_today()
     {room_groups, bookings, stays} = Bookings.load_calendar()
     all_rooms = Enum.flat_map(room_groups, & &1.rooms)
+
+    settings = Tasks.get_settings()
+
+    tasks =
+      Tasks.list_tasks()
+      |> filter_completed(settings)
+      |> sort_for(settings)
 
     socket
     |> assign(today: today, date_label: date_label(today))
@@ -495,7 +534,9 @@ defmodule HospexWeb.DashboardLive do
     |> assign(:arrivals,   arrivals(stays, today))
     |> assign(:departures, departures(stays, today))
     |> assign(:activity,   activity_feed())
-    |> assign(:tasks,      Tasks.list_tasks())
+    |> assign(:task_settings, settings)
+    |> assign(:task_logs,  Tasks.list_logs(30))
+    |> assign(:tasks,      tasks)
     # Re-derive the open drawer from fresh data (post-mutation refresh);
     # leaves it nil when no drawer is open. Does NOT touch drawer_tab,
     # notes_draft, expanded_stays.
@@ -796,9 +837,37 @@ defmodule HospexWeb.DashboardLive do
   defp drawer_task(%{id: id}) when not is_nil(id), do: Tasks.get_task(id)
   defp drawer_task(_), do: nil
 
-  defp blank_task_form do
-    %{title: "", description: "", priority: "med", due_on: "", booking_id: ""}
+  # Prefill the New-task form's priority from the saved default setting.
+  defp blank_task_form(socket) do
+    priority = socket.assigns.task_settings.default_priority
+    %{title: "", description: "", priority: priority, due_on: "", booking_id: ""}
   end
+
+  # ── Settings applied to the widget list ──────────────────────
+
+  # Hide done tasks when "show completed" is off.
+  defp filter_completed(tasks, %{show_completed: false}), do: Enum.reject(tasks, & &1.done)
+  defp filter_completed(tasks, _settings), do: tasks
+
+  # Re-order for the widget. "priority" keeps list_tasks/0's order; "due"
+  # re-sorts by due date ascending (nulls last), then priority — but keeps
+  # not-done tasks ahead of done ones either way.
+  defp sort_for(tasks, %{sort_by: "due"}) do
+    Enum.sort_by(tasks, fn t ->
+      {
+        (if t.done, do: 1, else: 0),
+        (if t.due_on, do: {0, Date.to_erl(t.due_on)}, else: {1, {0, 0, 0}}),
+        Map.get(%{"high" => 0, "med" => 1, "low" => 2}, t.priority, 99)
+      }
+    end)
+  end
+
+  defp sort_for(tasks, _settings), do: tasks
+
+  # A checkbox param is "true" when checked; the hidden companion sends
+  # "false" when unchecked (and any nil/other reads as off).
+  defp checkbox?("true"), do: true
+  defp checkbox?(_),      do: false
 
   # A short "REF · Guest" label for a linked booking, or nil if unlinked/missing.
   defp linked_booking_label(_bookings, nil), do: nil
@@ -837,6 +906,26 @@ defmodule HospexWeb.DashboardLive do
   defp task_pri_label("med"),  do: "Medium"
   defp task_pri_label("low"),  do: "Low"
   defp task_pri_label(p),      do: String.capitalize(to_string(p))
+
+  # ── Task activity log (template helpers) ──────────────────────
+
+  # Leading verb shown for each log row.
+  defp log_action_label("created"),   do: "Created"
+  defp log_action_label("updated"),   do: "Updated"
+  defp log_action_label("completed"), do: "Completed"
+  defp log_action_label("reopened"),  do: "Reopened"
+  defp log_action_label("deleted"),   do: "Deleted"
+  defp log_action_label(a),           do: String.capitalize(to_string(a))
+
+  # CSS tone class for the action dot.
+  defp log_action_tone("created"),   do: "info"
+  defp log_action_tone("completed"), do: "success"
+  defp log_action_tone("deleted"),   do: "danger"
+  defp log_action_tone(_),           do: ""
+
+  # Relative timestamp for a log row (NaiveDateTime → "5 min ago" etc.).
+  defp log_time(%NaiveDateTime{} = at), do: relative_time(at, NaiveDateTime.utc_now())
+  defp log_time(_), do: ""
 
   # ── Helpers (template-callable) ──────────────────────────
 

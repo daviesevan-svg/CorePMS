@@ -148,6 +148,9 @@
         <div class="card-head">
           <div class="card-title">Tasks</div>
           <span class="card-count"><%= Enum.count(@tasks, &(not &1.done)) %> open</span>
+          <button class="card-action task-settings-btn" title="Task settings" phx-click="open_task_settings">
+            <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="2"/><path d="M8 1.5v2M8 12.5v2M14.5 8h-2M3.5 8h-2M12.6 3.4 11.2 4.8M4.8 11.2l-1.4 1.4M12.6 12.6l-1.4-1.4M4.8 4.8 3.4 3.4"/></svg>
+          </button>
           <button class="card-action task-new-btn" phx-click="new_task">+ New</button>
         </div>
         <div class="card-body">
@@ -394,5 +397,87 @@
 
       <% _ -> %>
     <% end %>
+  </div>
+
+  <%!-- ── Task settings drawer ─────────────────────────────────── --%>
+  <div id="task-settings-scrim" class="drawer-scrim" data-open={if @task_settings_drawer, do: "1", else: "0"} phx-click="close_task_settings"></div>
+  <div id="task-settings-drawer" class="drawer task-drawer" data-open={if @task_settings_drawer, do: "1", else: "0"} role="dialog" aria-modal="true" phx-window-keydown="close_task_settings" phx-key="Escape">
+    <div class="dr-toolbar">
+      <button class="dr-back" phx-click="close_task_settings">
+        <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M10 3.5 5.5 8 10 12.5"/></svg>
+        Dashboard
+      </button>
+      <div class="dr-tool-right">
+        <button class="dr-icon" title="Close" phx-click="close_task_settings">
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="dr-hero">
+      <div class="task-dr-title">Task settings</div>
+    </div>
+
+    <div class="dr-body">
+      <%!-- Settings — each control auto-saves via the form's phx-change.
+            Wrapped in a <form> so the <select>s dispatch reliably. --%>
+      <form class="ts-form" phx-change="save_task_settings">
+        <label class="ts-row">
+          <div class="ts-row-text">
+            <div class="ts-row-label">Default priority</div>
+            <div class="ts-row-sub">Pre-selected when you add a task</div>
+          </div>
+          <select name="default_priority" class="task-input ts-select">
+            <option value="high" selected={@task_settings.default_priority == "high"}>High</option>
+            <option value="med"  selected={@task_settings.default_priority == "med"}>Medium</option>
+            <option value="low"  selected={@task_settings.default_priority == "low"}>Low</option>
+          </select>
+        </label>
+
+        <label class="ts-row">
+          <div class="ts-row-text">
+            <div class="ts-row-label">Show completed tasks</div>
+            <div class="ts-row-sub">Keep done tasks visible in the widget</div>
+          </div>
+          <input type="hidden" name="show_completed" value="false" />
+          <input type="checkbox" name="show_completed" value="true" class="ts-toggle-input" checked={@task_settings.show_completed} />
+          <span class="toggle" data-on={if @task_settings.show_completed, do: "1", else: "0"} aria-hidden="true"></span>
+        </label>
+
+        <label class="ts-row">
+          <div class="ts-row-text">
+            <div class="ts-row-label">Sort by</div>
+            <div class="ts-row-sub">Order tasks in the widget</div>
+          </div>
+          <select name="sort_by" class="task-input ts-select">
+            <option value="priority" selected={@task_settings.sort_by == "priority"}>Priority</option>
+            <option value="due"      selected={@task_settings.sort_by == "due"}>Due date</option>
+          </select>
+        </label>
+      </form>
+
+      <%!-- Activity log --%>
+      <div class="task-dr-section">
+        <div class="task-dr-label">Activity</div>
+        <%= if @task_logs == [] do %>
+          <div class="empty">No task activity yet.</div>
+        <% else %>
+          <div class="ts-log">
+            <%= for log <- @task_logs do %>
+              <div class="ts-log-row">
+                <span class={"ts-log-dot #{log_action_tone(log.action)}"}></span>
+                <div class="ts-log-body">
+                  <div class="ts-log-text"><%= log_action_label(log.action) %> · <%= log.title || "task" %></div>
+                  <%= if log.detail && log.detail != "" do %>
+                    <div class="ts-log-detail"><%= log.detail %></div>
+                  <% end %>
+                </div>
+                <div class="ts-log-time"><%= log_time(log.at) %></div>
+              </div>
+            <% end %>
+          </div>
+        <% end %>
+      </div>
+    </div>
   </div>
 </div>

@@ -625,3 +625,50 @@ button.dr-task:hover { background: var(--bg-sunk); }
 }
 .report-table tbody tr:last-child td { border-bottom: 0; }
 .report-table .num { text-align: right; font-family: 'Geist Mono', monospace; color: var(--ink); font-variant-numeric: tabular-nums; }
+
+/* ── Task settings drawer ──────────────────────────────────────── */
+/* Gear button in the Tasks card head: matches .card-action chrome but
+   sits flush to the +New button (no extra auto margin). */
+.task-settings-btn { margin-left: auto; padding: 4px; }
+.task-settings-btn + .task-new-btn { margin-left: 0; }
+
+/* Settings rows */
+.ts-form {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+}
+.ts-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 18px; cursor: pointer;
+}
+.ts-row + .ts-row { border-top: 1px solid var(--line); }
+.ts-row-text { flex: 1; min-width: 0; }
+.ts-row-label { font-size: 13px; font-weight: 500; color: var(--ink); }
+.ts-row-sub { font-size: 11.5px; color: var(--ink-4); margin-top: 2px; }
+.ts-select { width: auto; min-width: 110px; flex: none; }
+
+/* Visual toggle driven by a hidden checkbox (hidden-false + checkbox-true
+   idiom so the unchecked state still submits "false"). */
+.ts-toggle-input { position: absolute; opacity: 0; width: 0; height: 0; }
+
+/* Activity log */
+.ts-log { display: flex; flex-direction: column; }
+.ts-log-row {
+  display: flex; align-items: flex-start; gap: 10px;
+  padding: 9px 0; border-top: 1px solid var(--line);
+}
+.ts-log-row:first-child { border-top: 0; }
+.ts-log-dot {
+  flex: none; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--ink-4); margin-top: 5px;
+}
+.ts-log-dot.success { background: var(--paid-bar); }
+.ts-log-dot.info    { background: var(--in-ink); }
+.ts-log-dot.danger  { background: var(--unpaid-bar); }
+.ts-log-body { flex: 1; min-width: 0; }
+.ts-log-text { font-size: 12.5px; color: var(--ink); line-height: 1.35; }
+.ts-log-detail { font-size: 11.5px; color: var(--ink-3); margin-top: 2px; line-height: 1.35; }
+.ts-log-time {
+  flex: none; font-size: 11px; color: var(--ink-4);
+  font-family: 'Geist Mono', monospace; margin-top: 1px;
+}
