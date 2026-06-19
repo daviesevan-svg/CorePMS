@@ -24,11 +24,11 @@ config :hospex, Oban,
     Oban.Plugins.Pruner,
     {Oban.Plugins.Cron,
      crontab: [
-       # Channex: poll OTA booking feed every minute; hourly full ARI
+       # Channex: poll OTA booking feed every minute; daily full ARI
        # refresh (drift correction — incremental pushes come from
        # Hospex.Channex.Listener). Both no-op when CHANNEX_API_KEY is unset.
        {"* * * * *", Hospex.Channex.Workers.PollBookings},
-       {"0 * * * *", Hospex.Channex.Workers.PushAri},
+       {"0 0 * * *", Hospex.Channex.Workers.PushAri},
        # Daily retention sweep for the API-call log (feed: 7d, rest: 90d).
        {"15 3 * * *", Hospex.Channex.Workers.PruneApiLogs},
        # Materialise recurring/scheduled tasks (idempotent; per-minute).

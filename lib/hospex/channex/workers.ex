@@ -7,7 +7,7 @@ defmodule Hospex.Channex.Workers.PushAri do
     * `%{"scope" => "restrictions", "cells" => [[rt_id, iso_date], …]}`
       — delta restrictions for the touched cells (inventory edits)
     * anything else — full availability + restrictions (content edits,
-      hourly drift-correction cron)
+      daily drift-correction cron)
 
   Unique with a short window so a burst of identical pushes coalesces.
   """

@@ -227,7 +227,7 @@ defmodule Mix.Tasks.Channex.Doctor do
 
     case job do
       nil ->
-        [{:warn, "no Channex jobs yet — pushes happen on change + hourly cron (needs the server running)"}]
+        [{:warn, "no Channex jobs yet — pushes happen on change + daily cron (needs the server running)"}]
 
       {worker, "completed", at} ->
         [{:ok, "last job #{short(worker)} completed at #{at}"}]
