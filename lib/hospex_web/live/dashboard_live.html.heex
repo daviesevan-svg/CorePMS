@@ -225,7 +225,8 @@
   </div>
 
   <%!-- ── Shared drawer / wizard / transaction modal ──────────── --%>
-  <.booking_drawer selected_booking={@selected_booking} drawer_tab={@drawer_tab} expanded_stays={@expanded_stays} rate_breakdown_open={@rate_breakdown_open} notes_draft={@notes_draft} block_edit={@block_edit} more_menu_open={@more_menu_open} focused_stay_id={@focused_stay_id} editable={false} back_label="Dashboard" tasks={@selected_booking_tasks} task_actions={true} />
+  <.booking_drawer selected_booking={@selected_booking} drawer_tab={@drawer_tab} expanded_stays={@expanded_stays} rate_breakdown_open={@rate_breakdown_open} notes_draft={@notes_draft} block_edit={@block_edit} more_menu_open={@more_menu_open} focused_stay_id={@focused_stay_id} editable={true} back_label="Dashboard" tasks={@selected_booking_tasks} task_actions={true} />
+  <.booking_form new_booking={@new_booking} room_groups={@room_groups} all_bookings={@all_bookings} all_rooms={@all_rooms} all_stays={@all_stays} plan={@plan} back_label="Dashboard" />
   <.checkin_wizard wizard={@checkin_wizard} />
   <.txn_modal txn_form={@txn_form} />
 
