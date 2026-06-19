@@ -74,7 +74,7 @@ gotchas baked in.
   only; an inventory edit pushes only the touched `{room_type, date,
   field}` cells — Channex applies PARTIAL restriction updates, so a
   price edit sends `{rate}` alone. Full pushes are reserved for
-  YAML/content changes and the hourly drift-correction cron.
+  YAML/content changes and the daily drift-correction cron.
 - **Compress ranges.** Consecutive equal values collapse into
   `date_from`/`date_to` ranges before sending (payloads must stay <10MB).
 - **Rates are minor units.** Channex wants cents; this PMS stores whole
