@@ -12,15 +12,17 @@ defmodule Hospex.Channex.Ingest do
       rooms — when none are free we still ingest into the first room
       and let the calendar's overbooking lane flag it).
     * `cancelled` — cancel the linked local booking.
-    * `modified` — reconcile the linked local booking against the
-      revision. When the room *structure* is unchanged (same multiset of
-      room types) we apply dates / occupancy / price / contact changes
-      automatically via `Bookings.update_multi_stay_booking/3` and record
-      an `:ota_modified` audit event. When the structure changed (a room
-      added / removed, or its type changed) we can't reconcile safely, so
-      we record an `:ota_reconcile` event on the booking's history for a
-      human and ack (no redelivery storm). A `modified` for a booking we
-      never created locally is treated as a `new`.
+    * `modified` — 3-way merge against the last-synced OTA state (the
+      `base_revision` on `Hospex.Channex.Reservation`). If the hotel
+      hasn't touched the booking's room shape since the OTA last set it
+      (`Reconcile.hotel_touched?/2` is false), the revision is applied
+      wholesale — including structural changes (room added / removed /
+      retyped) — via add/update/remove stays, and the base advances.
+      If the hotel HAS touched it, we don't auto-apply: the revision is
+      parked on the reservation (`status: "pending"`) with a field-level
+      diff for staff to Accept/Deny, and an `:ota_reconcile` event is
+      logged. A `modified` for a booking we never created locally is
+      treated as a `new`.
 
   Dedupe: `channex_links` rows with kind "booking" map local booking id
   ↔ Channex booking id; a revision whose booking is already linked and
@@ -29,8 +31,9 @@ defmodule Hospex.Channex.Ingest do
 
   alias Hospex.Bookings
   alias Hospex.Channex
-  alias Hospex.Channex.Client
+  alias Hospex.Channex.{Client, Reconcile, Reservation}
   alias Hospex.Content.Property
+  alias Hospex.Repo
 
   require Logger
 
@@ -166,6 +169,10 @@ defmodule Hospex.Channex.Ingest do
           if ota_collect?, do: Bookings.update_stay_status(first_stay_id, :ota_collect)
 
           {:ok, _} = Channex.put_link("booking", booking.id, attrs["booking_id"])
+          # Seed the merge base so future `modified` revisions can tell
+          # whether the hotel has since touched the booking.
+          mark_synced(booking.id, attrs["booking_id"], attrs)
+
           {:ok, :created}
         end
     end
@@ -180,71 +187,218 @@ defmodule Hospex.Channex.Ingest do
         create_booking(attrs)
 
       # Don't silently resurrect a locally-cancelled booking; flag it.
-      %{status: :cancelled} ->
-        flag_for_reconciliation(booking_id, attrs, :locally_cancelled)
-        {:ok, :flagged}
+      %{status: :cancelled} = booking ->
+        flag(booking, attrs)
 
       booking ->
-        case reconcile(booking, attrs) do
-          {:ok, booking_attrs, stays_attrs_by_id} ->
-            case Bookings.update_multi_stay_booking(booking_id, booking_attrs, stays_attrs_by_id) do
-              :ok ->
-                Bookings.log_event(booking_id, :ota_modified, modification_summary(attrs))
-                {:ok, :modified}
+        room_groups = Property.room_groups()
 
-              {:error, reason} ->
-                {:error, reason}
+        case normalize_revision(attrs, room_groups) do
+          {:ok, incoming} ->
+            local = normalize_booking(booking, room_groups)
+            base = base_snapshot(booking_id, room_groups)
+
+            # With no base (legacy booking) we can't tell whether the hotel
+            # touched it, so fast-forward. Otherwise auto-apply only when the
+            # hotel hasn't changed the room shape since the OTA last set it.
+            if base && Reconcile.hotel_touched?(base, local) do
+              flag(booking, attrs, Reconcile.diff(local, incoming))
+            else
+              apply_full(booking, incoming, attrs)
+              mark_synced(booking_id, attrs["booking_id"], attrs)
+              Bookings.log_event(booking_id, :ota_modified, modification_summary(attrs))
+              {:ok, :modified}
             end
 
           # Unmapped room type is a config gap, not a conflict: leave it
           # un-acked so it retries once the mapping exists (like `new`).
-          {:error, {:unmapped_room, _} = reason} ->
-            {:error, reason}
-
-          # Structure changed (room added/removed/retyped) — can't
-          # reconcile safely. Flag for a human and ack.
-          {:error, reason} ->
-            flag_for_reconciliation(booking_id, attrs, reason)
-            {:ok, :flagged}
+          {:error, _} = err ->
+            err
         end
     end
   end
 
-  # Build the booking + per-stay attrs to apply, or an error describing why
-  # we can't reconcile automatically. Succeeds only when the revision's
-  # rooms map 1:1 onto the existing stays by room type (same multiset).
-  defp reconcile(booking, attrs) do
-    room_groups = Property.room_groups()
+  # ── Normalized snapshots (operational fields for the 3-way merge) ──
+
+  # Channex revision → snapshot. Resolves room types; unmapped → error.
+  defp normalize_revision(attrs, room_groups) do
     customer = attrs["customer"] || %{}
     total = parse_amount(attrs["amount"])
 
-    with {:ok, parsed} <- parse_rev_rooms(attrs["rooms"] || [], room_groups),
-         parsed <- assign_subtotals(parsed, total),
-         {:ok, pairs} <- match_by_type(booking.stays, parsed, room_groups) do
-      stays_attrs_by_id =
-        Map.new(pairs, fn {stay, room} ->
-          {stay.id,
-           %{
-             room_id:    stay.room_id,
-             guest_name: stay.guest_name,
-             adults:     room.adults,
-             kids:       room.kids,
-             check_in:   room.check_in,
-             check_out:  room.check_out,
-             subtotal:   room.subtotal
-           }}
-        end)
+    case parse_rev_rooms(attrs["rooms"] || [], room_groups) do
+      {:ok, parsed} ->
+        rooms =
+          parsed
+          |> assign_subtotals(total)
+          |> Enum.map(&Map.take(&1, [:type, :check_in, :check_out, :adults, :kids, :subtotal]))
 
-      booking_attrs = %{
-        lead_guest: guest_name(customer),
-        src:        src_for(attrs["ota_name"]),
-        email:      customer["mail"],
-        phone:      customer["phone"],
-        country:    customer["country"]
-      }
+        {:ok,
+         %{
+           rooms: rooms,
+           lead_guest: guest_name(customer),
+           email: customer["mail"],
+           phone: customer["phone"],
+           country: customer["country"],
+           total: total
+         }}
 
-      {:ok, booking_attrs, stays_attrs_by_id}
+      {:error, _} = err ->
+        err
     end
+  end
+
+  # Local booking → snapshot, in the same shape as a normalized revision.
+  defp normalize_booking(booking, room_groups) do
+    type_by_room = for g <- room_groups, r <- g.rooms, into: %{}, do: {r.id, g.id}
+
+    rooms =
+      Enum.map(booking.stays, fn s ->
+        %{
+          type:      Map.get(type_by_room, s.room_id),
+          check_in:  s.check_in,
+          check_out: Date.add(s.check_in, s.nights),
+          adults:    s.adults,
+          kids:      s.kids,
+          subtotal:  Map.get(s, :subtotal) || 0
+        }
+      end)
+
+    %{
+      rooms: rooms,
+      lead_guest: booking.lead_guest,
+      email: Map.get(booking, :email),
+      phone: Map.get(booking, :phone),
+      country: Map.get(booking, :country),
+      total: booking.total
+    }
+  end
+
+  defp base_snapshot(booking_id, room_groups) do
+    case Repo.get_by(Reservation, booking_id: booking_id) do
+      %Reservation{base_revision: base} when is_map(base) and map_size(base) > 0 ->
+        case normalize_revision(base, room_groups) do
+          {:ok, snap} -> snap
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  # ── Apply an incoming revision to the booking (add/update/remove) ──
+
+  # Reconcile local stays to the incoming rooms, matched by room type +
+  # position: matched pairs are updated, surplus incoming rooms added,
+  # surplus local stays removed. Booking-level contact rides along on the
+  # update. Run only when the hotel hasn't diverged, so this can't clobber
+  # a deliberate local change.
+  defp apply_full(booking, incoming, attrs) do
+    room_groups = Property.room_groups()
+    type_by_room = for g <- room_groups, r <- g.rooms, into: %{}, do: {r.id, g.id}
+
+    local_by_type = Enum.group_by(booking.stays, &Map.get(type_by_room, &1.room_id))
+    inc_by_type = Enum.group_by(incoming.rooms, & &1.type)
+    types = MapSet.union(MapSet.new(Map.keys(local_by_type)), MapSet.new(Map.keys(inc_by_type)))
+
+    {updates, adds, removes} =
+      Enum.reduce(types, {%{}, [], []}, fn t, {u, a, r} ->
+        locals = Map.get(local_by_type, t, [])
+        incs = Map.get(inc_by_type, t, [])
+        pairs = Enum.zip(locals, incs)
+
+        u2 =
+          Enum.reduce(pairs, u, fn {stay, room}, acc ->
+            Map.put(acc, stay.id, %{
+              room_id:    stay.room_id,
+              guest_name: stay.guest_name,
+              adults:     room.adults,
+              kids:       room.kids,
+              check_in:   room.check_in,
+              check_out:  room.check_out,
+              subtotal:   room.subtotal
+            })
+          end)
+
+        {u2,
+         a ++ Enum.map(Enum.drop(incs, length(pairs)), &{t, &1}),
+         r ++ Enum.drop(locals, length(pairs))}
+      end)
+
+    booking_attrs = %{
+      lead_guest: incoming.lead_guest,
+      src:        src_for(attrs["ota_name"]),
+      email:      incoming.email,
+      phone:      incoming.phone,
+      country:    incoming.country
+    }
+
+    if map_size(updates) > 0,
+      do: Bookings.update_multi_stay_booking(booking.id, booking_attrs, updates)
+
+    Enum.each(adds, fn {t, room} ->
+      case room_for_type(t, room, room_groups) do
+        nil ->
+          :ok
+
+        room_id ->
+          Bookings.add_stay_to_booking(booking.id, %{
+            room_id:    room_id,
+            guest_name: incoming.lead_guest,
+            adults:     room.adults,
+            kids:       room.kids,
+            check_in:   room.check_in,
+            check_out:  room.check_out,
+            subtotal:   room.subtotal
+          })
+      end
+    end)
+
+    Enum.each(removes, fn stay -> Bookings.remove_stay(booking.id, stay.id) end)
+    :ok
+  end
+
+  defp room_for_type(type_id, room, room_groups) do
+    case Enum.find(room_groups, &(&1.id == type_id)) do
+      %{rooms: [_ | _] = rooms} -> pick_free_room(rooms, room.check_in, room.check_out)
+      _ -> nil
+    end
+  end
+
+  # ── Reservation (merge state) persistence ─────────────────────
+
+  defp mark_synced(booking_id, channex_booking_id, base_attrs) do
+    put_reservation(booking_id, channex_booking_id, fn _existing ->
+      %{base_revision: base_attrs, pending_revision: nil, conflicts: [], status: "synced"}
+    end)
+  end
+
+  defp mark_pending(booking_id, channex_booking_id, incoming_attrs, conflicts) do
+    put_reservation(booking_id, channex_booking_id, fn existing ->
+      # Keep the existing base while pending so the diff stays meaningful;
+      # seed it from the incoming revision if we somehow have none yet.
+      base = (existing && existing.base_revision) || incoming_attrs
+      %{base_revision: base, pending_revision: incoming_attrs, conflicts: conflicts, status: "pending"}
+    end)
+  end
+
+  defp put_reservation(booking_id, channex_booking_id, fields_fn) do
+    existing = Repo.get_by(Reservation, booking_id: booking_id)
+    fields = fields_fn.(existing)
+    attrs = Map.merge(%{booking_id: booking_id, channex_booking_id: channex_booking_id}, fields)
+
+    (existing || %Reservation{})
+    |> Reservation.changeset(attrs)
+    |> Repo.insert_or_update!()
+  end
+
+  defp flag(booking, attrs, conflicts \\ []) do
+    mark_pending(booking.id, attrs["booking_id"], attrs, conflicts)
+
+    summary = "OTA modification needs reconciliation · ota_ref #{attrs["ota_reservation_code"]}"
+    Logger.warning("Channex booking #{booking.id}: #{summary}")
+    Bookings.log_event(booking.id, :ota_reconcile, summary)
+    {:ok, :flagged}
   end
 
   # Parse each Channex room into a normalized map, resolving the local
@@ -295,37 +449,6 @@ defmodule Hospex.Channex.Ingest do
         Map.put(room, :subtotal, sub)
       end)
     end
-  end
-
-  # Pair existing stays to revision rooms by room type. Succeeds only when
-  # both sides have the same set of types with equal counts per type —
-  # i.e. the booking's room structure is unchanged.
-  defp match_by_type(stays, parsed, room_groups) do
-    type_by_room = for g <- room_groups, r <- g.rooms, into: %{}, do: {r.id, g.id}
-    stays_by_type = Enum.group_by(stays, &Map.get(type_by_room, &1.room_id))
-    rooms_by_type = Enum.group_by(parsed, & &1.type)
-
-    structure_match? =
-      MapSet.new(Map.keys(stays_by_type)) == MapSet.new(Map.keys(rooms_by_type)) and
-        Enum.all?(rooms_by_type, fn {t, rooms} -> length(rooms) == length(stays_by_type[t]) end)
-
-    if structure_match? do
-      pairs =
-        Enum.flat_map(rooms_by_type, fn {t, rooms} -> Enum.zip(stays_by_type[t], rooms) end)
-
-      {:ok, pairs}
-    else
-      {:error, :structure_changed}
-    end
-  end
-
-  defp flag_for_reconciliation(booking_id, attrs, reason) do
-    summary =
-      "OTA modification needs manual reconciliation (#{reason}) · " <>
-        "ota_ref #{attrs["ota_reservation_code"]}"
-
-    Logger.warning("Channex booking #{booking_id}: #{summary}")
-    Bookings.log_event(booking_id, :ota_reconcile, summary)
   end
 
   defp modification_summary(attrs) do
