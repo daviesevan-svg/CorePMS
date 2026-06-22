@@ -66,6 +66,51 @@ defmodule Hospex.Bookings.Store do
     |> Enum.sort_by(& &1.check_in, Date)
   end
 
+  @doc """
+  Non-cancelled stays in `room_id` whose date range overlaps
+  `[check_in, check_out)` — i.e. would collide with a stay placed there.
+  Same half-open overlap rule as `list_bookings_in_range/2` and the
+  calendar's overbooking flag (cancelled excluded, holds occupy).
+
+  Options:
+    * `:exclude_stay_id`    — ignore this stay (its own old position on a move)
+    * `:exclude_booking_id` — ignore all stays of this booking (whole-booking edit)
+
+  Returns lightweight maps `%{stay_id, booking_id, ref, guest_name,
+  room_id, check_in, check_out}`, newest-overlap not significant.
+  """
+  def conflicting_stays(room_id, %Date{} = check_in, %Date{} = check_out, opts \\ []) do
+    base =
+      from s in Stay,
+        join: b in assoc(s, :booking),
+        where:
+          s.room_id == ^to_string(room_id) and
+            s.status != "cancelled" and
+            s.check_in < ^check_out and
+            fragment("(? + (? * INTERVAL '1 day'))::date > ?", s.check_in, s.nights, ^check_in),
+        select: %{
+          stay_id: s.id,
+          booking_id: s.booking_id,
+          ref: b.ref,
+          guest_name: s.guest_name,
+          room_id: s.room_id,
+          check_in: s.check_in,
+          nights: s.nights
+        }
+
+    base
+    |> maybe_exclude_stay(opts[:exclude_stay_id])
+    |> maybe_exclude_booking(opts[:exclude_booking_id])
+    |> Repo.all()
+    |> Enum.map(fn s -> Map.put(s, :check_out, Date.add(s.check_in, s.nights)) end)
+  end
+
+  defp maybe_exclude_stay(query, nil), do: query
+  defp maybe_exclude_stay(query, id), do: from([s] in query, where: s.id != ^id)
+
+  defp maybe_exclude_booking(query, nil), do: query
+  defp maybe_exclude_booking(query, id), do: from([s, b] in query, where: s.booking_id != ^id)
+
   def get_booking(id) do
     case Repo.get(Booking, id) do
       nil -> nil

@@ -288,4 +288,41 @@ defmodule Hospex.BookingsTest do
       assert Enum.any?(reloaded.events, &(&1.kind == :block_created))
     end
   end
+
+  describe "conflicting_stays/4" do
+    test "finds a non-cancelled overlap in the same room" do
+      {:ok, b, stay_id} = Bookings.create_simple_booking(simple_attrs(%{room_id: "r101"}))
+
+      assert [c] = Bookings.conflicting_stays("r101", ~D[2026-07-03], ~D[2026-07-07])
+      assert c.stay_id == stay_id
+      assert c.booking_id == b.id
+      assert c.ref == b.ref
+      assert c.check_in == ~D[2026-07-01]
+      assert c.check_out == ~D[2026-07-05]
+    end
+
+    test "same-day turnover is not a conflict (half-open range)" do
+      {:ok, _b, _} = Bookings.create_simple_booking(simple_attrs(%{room_id: "r101"}))
+      assert [] = Bookings.conflicting_stays("r101", ~D[2026-07-05], ~D[2026-07-08])
+    end
+
+    test "a different room never conflicts" do
+      {:ok, _b, _} = Bookings.create_simple_booking(simple_attrs(%{room_id: "r101"}))
+      assert [] = Bookings.conflicting_stays("r102", ~D[2026-07-03], ~D[2026-07-07])
+    end
+
+    test "exclude_booking_id / exclude_stay_id skip the booking being edited" do
+      {:ok, b, stay_id} = Bookings.create_simple_booking(simple_attrs(%{room_id: "r101"}))
+
+      assert [] = Bookings.conflicting_stays("r101", ~D[2026-07-03], ~D[2026-07-07], exclude_booking_id: b.id)
+      assert [] = Bookings.conflicting_stays("r101", ~D[2026-07-03], ~D[2026-07-07], exclude_stay_id: stay_id)
+    end
+
+    test "cancelled stays do not conflict" do
+      {:ok, b, _} = Bookings.create_simple_booking(simple_attrs(%{room_id: "r101"}))
+      :ok = Bookings.cancel_booking(b.id)
+
+      assert [] = Bookings.conflicting_stays("r101", ~D[2026-07-03], ~D[2026-07-07])
+    end
+  end
 end
