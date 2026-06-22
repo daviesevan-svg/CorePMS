@@ -516,16 +516,22 @@ defmodule HospexWeb.CalendarLive do
         {:noreply, assign(socket, :action_flash, "Pick a different room")}
 
       true ->
-        :ok = Bookings.move_stay(f.stay_id, f.target_room_id)
+        # The popover disables taken rooms, so this is a defensive net for a
+        # stale form (the room filled up since the menu opened).
+        case Bookings.move_stay(f.stay_id, f.target_room_id) do
+          :ok ->
+            socket =
+              socket
+              |> reload_bookings()
+              |> refresh_selected_booking()
+              |> assign(move_form: nil, quick_menu: nil,
+                        action_flash: "✓ Moved #{f.guest_name} to room #{room_num(f.target_room_id)}")
 
-        socket =
-          socket
-          |> reload_bookings()
-          |> refresh_selected_booking()
-          |> assign(move_form: nil, quick_menu: nil,
-                    action_flash: "✓ Moved #{f.guest_name} to room #{room_num(f.target_room_id)}")
+            {:noreply, socket}
 
-        {:noreply, socket}
+          {:error, {:conflict, _}} ->
+            {:noreply, assign(socket, :action_flash, "That room is no longer free for these dates")}
+        end
     end
   end
 
@@ -670,6 +676,14 @@ defmodule HospexWeb.CalendarLive do
         # Stored deltas needed by the context update.
         delta_start:    delta_start,
         delta_end:      delta_end,
+        # Overbooking check for the proposed position (excludes this stay).
+        conflicts:
+          Bookings.conflicting_stays(
+            new_room_id || stay.room_id,
+            new_check_in,
+            Date.add(new_check_in, new_nights),
+            exclude_stay_id: stay_id
+          ),
         # Popover anchor (mouseup coords).
         x:              to_int_signed(Map.get(params, "x", 0)),
         y:              to_int_signed(Map.get(params, "y", 0))
@@ -695,7 +709,9 @@ defmodule HospexWeb.CalendarLive do
         do: Map.put(changes, :room_id, p.new_room_id),
         else: changes
 
-    :ok = Bookings.update_stay_position(p.stay_id, changes)
+    # The drag-confirm popover already showed any overbooking warning, so a
+    # click here is an explicit confirm — force past the context guard.
+    :ok = Bookings.update_stay_position(p.stay_id, changes, force: true)
 
     # No reset_pill push needed here — reload_bookings will re-render the
     # pill at its new server-side geometry, and morphdom will overwrite

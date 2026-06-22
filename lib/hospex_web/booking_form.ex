@@ -354,7 +354,9 @@ defmodule HospexWeb.BookingForm do
                 {stay_id, build_stay_save_attrs(socket, f, sf)}
               end)
 
-            :ok = Bookings.update_multi_stay_booking(f.edit_id, booking_attrs, stays_attrs)
+            # The form gates on room_ok? above; force past the context guard
+            # (a confirm-anyway flow replaces this hard gate in a follow-up).
+            :ok = Bookings.update_multi_stay_booking(f.edit_id, booking_attrs, stays_attrs, force: true)
 
             socket =
               socket
@@ -375,7 +377,7 @@ defmodule HospexWeb.BookingForm do
               check_out:  Date.add(f.start_date, nights),
               subtotal:   nb_total(f)
             }
-            {:ok, new_stay_id} = Bookings.add_stay_to_booking(f.add_to_id, attrs)
+            {:ok, new_stay_id} = Bookings.add_stay_to_booking(f.add_to_id, attrs, force: true)
 
             socket =
               socket
@@ -388,7 +390,7 @@ defmodule HospexWeb.BookingForm do
           # Fresh booking.
           true ->
             attrs = add_new_booking_attrs(f, nights, final_room_id)
-            {:ok, _view, new_stay_id} = Bookings.create_simple_booking(attrs)
+            {:ok, _view, new_stay_id} = Bookings.create_simple_booking(attrs, force: true)
 
             socket =
               socket

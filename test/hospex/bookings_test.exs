@@ -325,4 +325,37 @@ defmodule Hospex.BookingsTest do
       assert [] = Bookings.conflicting_stays("r101", ~D[2026-07-03], ~D[2026-07-07])
     end
   end
+
+  describe "availability enforcement (force opt-out)" do
+    test "create_simple_booking refuses an overbooking, force overrides" do
+      {:ok, _a, _} = Bookings.create_simple_booking(simple_attrs(%{room_id: "r101"}))
+
+      assert {:error, {:conflict, [c]}} = Bookings.create_simple_booking(simple_attrs(%{room_id: "r101"}))
+      assert c.room_id == "r101"
+
+      assert {:ok, _b, _} = Bookings.create_simple_booking(simple_attrs(%{room_id: "r101"}), force: true)
+    end
+
+    test "move_stay refuses moving into an occupied room, force overrides" do
+      {:ok, _a, _} = Bookings.create_simple_booking(simple_attrs(%{room_id: "r101"}))
+      {:ok, _b, stay_id} = Bookings.create_simple_booking(simple_attrs(%{room_id: "r102"}))
+
+      assert {:error, {:conflict, _}} = Bookings.move_stay(stay_id, "r101")
+      assert :ok = Bookings.move_stay(stay_id, "r101", force: true)
+    end
+
+    test "update_stay_position refuses a drag into an occupied room, force overrides" do
+      {:ok, _a, _} = Bookings.create_simple_booking(simple_attrs(%{room_id: "r101"}))
+      {:ok, _b, stay_id} = Bookings.create_simple_booking(simple_attrs(%{room_id: "r102"}))
+
+      assert {:error, {:conflict, _}} = Bookings.update_stay_position(stay_id, %{room_id: "r101"})
+      assert :ok = Bookings.update_stay_position(stay_id, %{room_id: "r101"}, force: true)
+    end
+
+    test "a stay moving within its own room (no real conflict) is allowed" do
+      {:ok, _b, stay_id} = Bookings.create_simple_booking(simple_attrs(%{room_id: "r101"}))
+      # Shift the dates one day inside the same room — excludes itself.
+      assert :ok = Bookings.update_stay_position(stay_id, %{delta_start: 1, delta_end: 1})
+    end
+  end
 end

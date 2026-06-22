@@ -706,12 +706,25 @@
         </form>
       <% end %>
 
+      <%!-- Overbooking warning (the room is taken on the proposed dates) --%>
+      <%= if pd.conflicts != [] do %>
+        <div class="dc-conflict">
+          <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2 14.5 13.5h-13Z"/><path d="M8 6.5v3.5"/><circle cx="8" cy="11.8" r=".6" fill="currentColor" stroke="none"/></svg>
+          <span>
+            Overlaps
+            <%= for c <- pd.conflicts do %>
+              <strong><%= c.ref %></strong> (<%= Calendar.strftime(c.check_in, "%b %-d") %>–<%= Calendar.strftime(c.check_out, "%b %-d") %>)<% end %>
+            in this room.
+          </span>
+        </div>
+      <% end %>
+
       <%!-- Footer actions --%>
       <div class="dc-foot">
         <button class="dr-action" phx-click="cancel_stay_change">Cancel</button>
-        <button class="dr-action primary" phx-click="confirm_stay_change">
+        <button class={"dr-action " <> if(pd.conflicts != [], do: "danger", else: "primary")} phx-click="confirm_stay_change">
           <svg viewBox="0 0 16 16" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m4 8 3 3 5-6"/></svg>
-          Apply
+          <%= if pd.conflicts != [], do: "Overbook anyway", else: "Apply" %>
         </button>
       </div>
     </div>
