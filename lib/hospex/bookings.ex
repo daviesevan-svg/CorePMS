@@ -124,6 +124,17 @@ defmodule Hospex.Bookings do
   def get_booking(booking_id), do: Store.get_booking(booking_id)
 
   @doc """
+  Stays that would collide with a stay placed in `room_id` over
+  `[check_in, check_out)` — non-cancelled overlaps in the same physical
+  room. `:exclude_stay_id` / `:exclude_booking_id` skip the stay/booking
+  being moved or edited. Returns `[]` when the slot is free. Backs the
+  interactive write paths' overbooking guard.
+  """
+  def conflicting_stays(room_id, check_in, check_out, opts \\ []) do
+    Store.conflicting_stays(room_id, check_in, check_out, opts)
+  end
+
+  @doc """
   Most recent booking audit events across all bookings, newest first,
   with the parent booking preloaded — for the dashboard activity feed.
   """
