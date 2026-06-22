@@ -149,7 +149,7 @@ defmodule Hospex.Channex.Ingest do
               email: customer["mail"],
               phone: customer["phone"],
               country: customer["country"]
-            })
+            }, force: true)
 
           Enum.each(rest, fn room ->
             with {:ok, room_id, ci, co} <- place_room(room, room_groups) do
@@ -161,7 +161,7 @@ defmodule Hospex.Channex.Ingest do
                 check_in: ci,
                 check_out: co,
                 subtotal: parse_amount(room["amount"])
-              })
+              }, force: true)
             end
           end)
 
@@ -387,7 +387,7 @@ defmodule Hospex.Channex.Ingest do
     }
 
     if map_size(updates) > 0,
-      do: Bookings.update_multi_stay_booking(booking.id, booking_attrs, updates)
+      do: Bookings.update_multi_stay_booking(booking.id, booking_attrs, updates, force: true)
 
     Enum.each(adds, fn {t, room} ->
       case room_for_type(t, room, room_groups) do
@@ -403,7 +403,7 @@ defmodule Hospex.Channex.Ingest do
             check_in:   room.check_in,
             check_out:  room.check_out,
             subtotal:   room.subtotal
-          })
+          }, force: true)
       end
     end)
 

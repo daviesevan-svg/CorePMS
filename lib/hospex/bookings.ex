@@ -69,6 +69,30 @@ defmodule Hospex.Bookings do
 
   defp ok_and_broadcast({:error, _} = err, _booking_id), do: err
 
+  # Refuse a write that would overbook the target room+dates, unless the
+  # caller passes `force: true` (the OTA ingest path, or a staff member who
+  # explicitly confirmed). Returns `:ok` or `{:error, {:conflict, stays}}`.
+  defp availability_guard(room_id, %Date{} = check_in, %Date{} = check_out, opts) do
+    if Keyword.get(opts, :force, false) do
+      :ok
+    else
+      excl = Keyword.take(opts, [:exclude_stay_id, :exclude_booking_id])
+
+      case Store.conflicting_stays(room_id, check_in, check_out, excl) do
+        []        -> :ok
+        conflicts -> {:error, {:conflict, conflicts}}
+      end
+    end
+  end
+
+  defp fetch_stay(stay_id) do
+    Repo.one(
+      from s in Stay,
+        where: s.id == ^stay_id,
+        select: %{id: s.id, room_id: s.room_id, check_in: s.check_in, nights: s.nights}
+    )
+  end
+
   @doc """
   Set or update the booking's internal staff notes. Writes the column
   and appends a `:notes_updated` event.
@@ -269,7 +293,13 @@ defmodule Hospex.Bookings do
   Create a single-stay booking from the new-booking drawer's form data.
   Returns `{:ok, booking, primary_stay_id}`.
   """
-  def create_simple_booking(attrs) do
+  def create_simple_booking(attrs, opts \\ []) do
+    with :ok <- availability_guard(attrs.room_id, attrs.check_in, attrs.check_out, opts) do
+      do_create_simple_booking(attrs)
+    end
+  end
+
+  defp do_create_simple_booking(attrs) do
     nights = Date.diff(attrs.check_out, attrs.check_in)
     src    = Map.get(attrs, :src, "direct")
 
@@ -602,7 +632,31 @@ defmodule Hospex.Bookings do
   Stays not listed are preserved untouched. Booking total is re-aggregated
   across all stays (each carries an explicit `:subtotal`).
   """
-  def update_multi_stay_booking(booking_id, booking_attrs, stays_attrs_by_id) do
+  def update_multi_stay_booking(booking_id, booking_attrs, stays_attrs_by_id, opts \\ []) do
+    guard_opts = Keyword.put(opts, :exclude_booking_id, booking_id)
+
+    with :ok <- multi_stay_guard(stays_attrs_by_id, guard_opts) do
+      do_update_multi_stay_booking(booking_id, booking_attrs, stays_attrs_by_id)
+    end
+  end
+
+  # Each staged stay must fit its target room+dates (the whole booking is
+  # excluded so its other stays don't count). Aggregates all conflicts.
+  defp multi_stay_guard(stays_attrs_by_id, opts) do
+    conflicts =
+      stays_attrs_by_id
+      |> Map.values()
+      |> Enum.flat_map(fn a ->
+        case availability_guard(a.room_id, a.check_in, a.check_out, opts) do
+          :ok -> []
+          {:error, {:conflict, cs}} -> cs
+        end
+      end)
+
+    if conflicts == [], do: :ok, else: {:error, {:conflict, conflicts}}
+  end
+
+  defp do_update_multi_stay_booking(booking_id, booking_attrs, stays_attrs_by_id) do
     n_rooms = map_size(stays_attrs_by_id)
 
     booking_id
@@ -677,7 +731,15 @@ defmodule Hospex.Bookings do
   Append a stay to an existing booking (multi-room flow). `attrs` mirrors
   the new-booking form, with the booking-level guest name reused.
   """
-  def add_stay_to_booking(booking_id, attrs) do
+  def add_stay_to_booking(booking_id, attrs, opts \\ []) do
+    guard_opts = Keyword.put(opts, :exclude_booking_id, booking_id)
+
+    with :ok <- availability_guard(attrs.room_id, attrs.check_in, attrs.check_out, guard_opts) do
+      do_add_stay_to_booking(booking_id, attrs)
+    end
+  end
+
+  defp do_add_stay_to_booking(booking_id, attrs) do
     nights = Date.diff(attrs.check_out, attrs.check_in)
 
     result =
@@ -825,8 +887,10 @@ defmodule Hospex.Bookings do
   and/or the room (`room_id`). Re-aggregates the booking date range.
   Negative deltas allowed; clamped so nights stay >= 1.
   """
-  def update_stay_position(stay_id, changes) do
-    with {:ok, booking_id} <- booking_id_for_stay(stay_id) do
+  def update_stay_position(stay_id, changes, opts \\ []) do
+    with {:ok, booking_id} <- booking_id_for_stay(stay_id),
+         stay = fetch_stay(stay_id),
+         :ok <- position_guard(stay, changes, stay_id, opts) do
       booking_id
       |> mutate_and_log(
         fn b ->
@@ -857,6 +921,19 @@ defmodule Hospex.Bookings do
       )
       |> ok_and_broadcast(booking_id)
     end
+  end
+
+  # Compute the proposed room+dates from the drag deltas and check it,
+  # excluding the stay's own current position.
+  defp position_guard(stay, changes, stay_id, opts) do
+    delta_start = Map.get(changes, :delta_start, 0)
+    delta_end   = Map.get(changes, :delta_end, 0)
+    room_id     = Map.get(changes, :room_id, stay.room_id)
+    check_in    = Date.add(stay.check_in, delta_start)
+    nights      = max(1, stay.nights + delta_end - delta_start)
+    check_out   = Date.add(check_in, nights)
+
+    availability_guard(room_id, check_in, check_out, Keyword.put(opts, :exclude_stay_id, stay_id))
   end
 
   defp apply_position_changes(stay, changes) do
@@ -894,8 +971,16 @@ defmodule Hospex.Bookings do
   end
 
   @doc "Change the room a stay is assigned to."
-  def move_stay(stay_id, new_room_id) when is_binary(new_room_id) do
-    with {:ok, booking_id} <- booking_id_for_stay(stay_id) do
+  def move_stay(stay_id, new_room_id, opts \\ []) when is_binary(new_room_id) do
+    with {:ok, booking_id} <- booking_id_for_stay(stay_id),
+         stay = fetch_stay(stay_id),
+         :ok <-
+           availability_guard(
+             new_room_id,
+             stay.check_in,
+             Date.add(stay.check_in, stay.nights),
+             Keyword.put(opts, :exclude_stay_id, stay_id)
+           ) do
       booking_id
       |> mutate_and_log(
         fn b ->
