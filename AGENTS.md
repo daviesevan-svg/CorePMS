@@ -108,7 +108,6 @@ The esbuild `--watch` watchers occasionally miss edits to `assets/js/app.js` / `
 - **Channex: reconciliation UI for flagged `modified` revisions.** Structure-preserving OTA modifications now apply automatically; structural changes (room added/removed/retyped) are recorded as `:ota_reconcile` events on the booking history but still need a staff-facing UI to resolve them (currently they only surface in the History tab). Also: switch inbound from per-minute polling to Channex webhooks; a `/settings/channels` page showing sync status + link health; sync all rate plans (not just the primary `CHANNEX_RATE_PLAN`) once the inventory UI grows a plan dimension.
 - **Channex sell-state guard.** Availability pushes count holds as occupied but nothing stops a stop-sell race: a local booking made between pushes can collide with an OTA booking for the last room. The ingest path deliberately accepts the overbooking and lets the calendar flag it — consider an explicit alert (email/toast) when ingest had to place into an occupied room.
 - **`bookings_live.ex` `handle_event/3` grouping warning.** Same fix pattern as the calendar refactor.
-- **Pre-existing test failure:** `validator_test.exs:133` ("property — required fields, missing schema_version") fails on a clean tree — predates all recent work; every suite run shows "N tests, 1 failure" because of it.
 
 ## Conventions
 - Money formatted via `format_money/1`; dates via `Calendar.strftime` or local helpers (`format_date_range`, `dow_abbr`, `month_abbr`).
