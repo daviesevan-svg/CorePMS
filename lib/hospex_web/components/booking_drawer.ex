@@ -36,6 +36,19 @@ defmodule HospexWeb.BookingDrawerComponents do
   def event_dot_class(:success), do: "dr-event-dot success"
   def event_dot_class(_), do: "dr-event-dot"
 
+  # ── OTA reconciliation banner ─────────────────────────────────
+
+  def recon_field_label("rooms"), do: "Rooms"
+  def recon_field_label("total"), do: "Total"
+  def recon_field_label("lead_guest"), do: "Lead guest"
+  def recon_field_label(f), do: f |> String.capitalize()
+
+  # A conflict value is either a scalar or a list of room descriptions.
+  def recon_value(v) when is_list(v), do: Enum.join(v, ", ")
+  def recon_value(nil), do: "—"
+  def recon_value(""), do: "—"
+  def recon_value(v), do: to_string(v)
+
   # Resolve the effective release-on flag for the block form: staged value if
   # the user toggled it, otherwise derived from the booking's current state.
   def block_edit_release_on?(stage, booking) do
@@ -509,6 +522,36 @@ defmodule HospexWeb.BookingDrawerComponents do
             </div>
           </div>
         </div>
+
+        <%!-- OTA reconciliation banner: the channel modified this booking
+             but the hotel had touched it locally, so it needs confirming. --%>
+        <%= if recon = Map.get(sb, :reconciliation) do %>
+          <div class="dr-reconcile">
+            <div class="dr-reconcile-head">
+              <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2 14.5 13.5h-13Z"/><path d="M8 6.5v3.5"/><circle cx="8" cy="11.8" r=".6" fill="currentColor" stroke="none"/></svg>
+              <span><%= Hospex.Content.BookingDetails.channel_name(b.src) %> changed this booking</span>
+            </div>
+            <div class="dr-reconcile-sub">You edited it locally, so confirm before applying.</div>
+            <div class="dr-reconcile-diffs">
+              <%= for c <- recon.conflicts do %>
+                <div class="dr-reconcile-row">
+                  <span class="dr-reconcile-field"><%= recon_field_label(c["field"]) %></span>
+                  <span class="dr-reconcile-from"><%= recon_value(c["local"]) %></span>
+                  <svg class="dr-reconcile-arrow" viewBox="0 0 16 16" width="12" height="12" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h10M9 4l4 4-4 4"/></svg>
+                  <span class="dr-reconcile-to"><%= recon_value(c["incoming"]) %></span>
+                </div>
+              <% end %>
+            </div>
+            <div class="dr-reconcile-actions">
+              <button class="dr-action primary" phx-click="accept_reconciliation" phx-value-id={b.id}>
+                Apply <%= Hospex.Content.BookingDetails.channel_name(b.src) %> changes
+              </button>
+              <button class="dr-action" phx-click="deny_reconciliation" phx-value-id={b.id}>
+                Keep mine
+              </button>
+            </div>
+          </div>
+        <% end %>
 
         <%!-- Tabs --%>
         <div class="dr-tabs">
