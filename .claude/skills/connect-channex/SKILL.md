@@ -86,14 +86,18 @@ gotchas baked in.
 - **The feed is account-wide.** Revisions for properties without a
   local link are acked + skipped, so stray test properties on the same
   account can't wedge the poller.
-- **`modified` revisions are reconciled, not blindly applied.**
-  Structure-preserving changes (same room-type multiset) apply
-  automatically (dates/occupancy/price/contact) and log an
-  `:ota_modified` event; structural changes (room added/removed/retyped)
-  are recorded as an `:ota_reconcile` event on the booking history for a
-  human and acked (no redelivery storm); an unmapped room type stays
-  un-acked to retry. A `modified` for a booking with no local link is
-  treated as `new`.
+- **`modified` revisions are 3-way merged, not blindly applied.** Each
+  is diffed against the last-synced OTA state (`base_revision` on
+  `channex_reservations`). If the hotel hasn't changed the booking's room
+  shape since (`Reconcile.hotel_touched?/2`), the revision auto-applies
+  wholesale — **including** structural add/remove/retype — and logs an
+  `:ota_modified` event. If the hotel HAS touched it, the revision is
+  parked (`status: "pending"` + field-level `conflicts`) for staff to
+  Accept/Deny, with an `:ota_reconcile` event, and acked (no redelivery
+  storm). Unmapped room type stays un-acked to retry; a `modified` with
+  no local link is treated as `new`. The discriminator is "did the hotel
+  touch it?", not "is it structural" — a booking under manual control
+  keeps prompting for confirmation on every future OTA change.
 - **Overbooking is accepted, not refused.** If no room is free, the
   booking still ingests into the first room and the calendar's
   overbooking lane flags it — a channel-manager booking must never be

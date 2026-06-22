@@ -725,6 +725,43 @@ defmodule Hospex.Bookings do
   end
 
   @doc """
+  Remove a stay from a booking (inverse of `add_stay_to_booking/2` — used
+  when an OTA modification drops a room). Re-aggregates `total`/`room_count`
+  and the booking date range across the remaining stays. Refuses to remove
+  the last stay (`{:error, :last_stay}`) — cancel the booking instead.
+  """
+  def remove_stay(booking_id, stay_id) do
+    booking_id
+    |> mutate_and_log(
+      fn b ->
+        with_subs = ensure_subtotals(b)
+        {removed, remaining} = Enum.split_with(with_subs, &(&1.id == stay_id))
+
+        cond do
+          removed == [] ->
+            {:error, :stay_not_found}
+
+          remaining == [] ->
+            {:error, :last_stay}
+
+          true ->
+            new_total = Enum.reduce(remaining, 0, &(&1.subtotal + &2))
+            n = length(remaining)
+            remaining = Enum.map(remaining, &Map.merge(&1, %{total: new_total, room_count: n}))
+
+            check_in  = remaining |> Enum.map(& &1.check_in) |> Enum.min(Date)
+            check_out = remaining |> Enum.map(&Date.add(&1.check_in, &1.nights)) |> Enum.max(Date)
+
+            Map.merge(b, %{total: new_total, check_in: check_in, check_out: check_out, stays: remaining})
+        end
+      end,
+      :room_removed,
+      summary: "Room removed"
+    )
+    |> ok_and_broadcast(booking_id)
+  end
+
+  @doc """
   Update a block / hold booking's auto-release timestamp. `release_at`
   may be a NaiveDateTime (auto-release on) or nil (auto-release off).
   """

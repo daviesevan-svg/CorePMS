@@ -481,26 +481,94 @@ defmodule Hospex.ChannexTest do
       assert Channex.local_id("booking", "cx-mod-new")
     end
 
-    test "modified revision that changes room structure is flagged, not applied" do
+    test "structural change with no local edits is auto-applied (adds the room)" do
+      # Example 1: OTA books 1 room, then modifies to 2 — hotel never
+      # touched it, so we add the second room automatically.
       {:ok, _} = Channex.put_link("room_type", "deluxe-sea-view", "rt-deluxe")
       assert {:ok, :created} = Ingest.apply_revision(revision(%{}))
       local = Channex.local_id("booking", "cx-booking-1") |> String.to_integer()
-      stays_before = length(Bookings.get_booking(local).stays)
+      assert length(Bookings.get_booking(local).stays) == 1
 
       rev =
         revision(%{
           "status" => "modified",
+          "amount" => "500.00",
           "rooms" => [
-            %{"checkin_date" => "2027-03-10", "checkout_date" => "2027-03-12", "room_type_id" => "rt-classic", "occupancy" => %{"adults" => 2}},
-            %{"checkin_date" => "2027-03-10", "checkout_date" => "2027-03-12", "room_type_id" => "rt-deluxe", "occupancy" => %{"adults" => 2}}
+            %{"checkin_date" => "2027-03-10", "checkout_date" => "2027-03-12", "room_type_id" => "rt-classic", "occupancy" => %{"adults" => 2, "children" => 0}, "amount" => "260.00"},
+            %{"checkin_date" => "2027-03-10", "checkout_date" => "2027-03-12", "room_type_id" => "rt-deluxe", "occupancy" => %{"adults" => 2, "children" => 0}, "amount" => "240.00"}
           ]
+        })
+
+      assert {:ok, :modified} = Ingest.apply_revision(rev)
+
+      booking = Bookings.get_booking(local)
+      assert length(booking.stays) == 2
+      assert booking.total == 500
+    end
+
+    test "modification that drops a room is auto-applied (removes the stay)" do
+      two_rooms =
+        revision(%{
+          "amount" => "520.00",
+          "rooms" => [
+            %{"checkin_date" => "2027-03-10", "checkout_date" => "2027-03-12", "room_type_id" => "rt-classic", "occupancy" => %{"adults" => 2, "children" => 0}, "amount" => "260.00"},
+            %{"checkin_date" => "2027-03-10", "checkout_date" => "2027-03-12", "room_type_id" => "rt-classic", "occupancy" => %{"adults" => 2, "children" => 0}, "amount" => "260.00"}
+          ]
+        })
+
+      assert {:ok, :created} = Ingest.apply_revision(two_rooms)
+      local = Channex.local_id("booking", "cx-booking-1") |> String.to_integer()
+      assert length(Bookings.get_booking(local).stays) == 2
+
+      drop =
+        revision(%{
+          "status" => "modified",
+          "amount" => "260.00",
+          "rooms" => [%{"checkin_date" => "2027-03-10", "checkout_date" => "2027-03-12", "room_type_id" => "rt-classic", "occupancy" => %{"adults" => 2, "children" => 0}}]
+        })
+
+      assert {:ok, :modified} = Ingest.apply_revision(drop)
+
+      booking = Bookings.get_booking(local)
+      assert length(booking.stays) == 1
+      assert booking.total == 260
+    end
+
+    test "modification is flagged (not applied) when the hotel changed the booking" do
+      # Example 2: hotel takes manual control of the booking; the next OTA
+      # modification must be confirmed, not auto-applied.
+      assert {:ok, :created} = Ingest.apply_revision(revision(%{}))
+      local = Channex.local_id("booking", "cx-booking-1") |> String.to_integer()
+      [stay] = Bookings.get_booking(local).stays
+
+      # Hotel moves the stay locally — now it diverges from the OTA base.
+      :ok =
+        Bookings.update_multi_stay_booking(
+          local,
+          %{lead_guest: "Marie Curie"},
+          %{stay.id => %{room_id: stay.room_id, guest_name: stay.guest_name, adults: stay.adults, kids: stay.kids, check_in: ~D[2027-03-15], check_out: ~D[2027-03-17], subtotal: 260}}
+        )
+
+      rev =
+        revision(%{
+          "status" => "modified",
+          "amount" => "320.00",
+          "rooms" => [%{"checkin_date" => "2027-03-11", "checkout_date" => "2027-03-13", "room_type_id" => "rt-classic", "occupancy" => %{"adults" => 2, "children" => 0}}]
         })
 
       assert {:ok, :flagged} = Ingest.apply_revision(rev)
 
       booking = Bookings.get_booking(local)
-      assert length(booking.stays) == stays_before
+      # The OTA change was NOT applied — the hotel's dates are preserved.
+      assert [s] = booking.stays
+      assert s.check_in == ~D[2027-03-15]
       assert Enum.any?(booking.events, &(&1.kind == :ota_reconcile))
+
+      # A pending reconciliation is recorded for staff to resolve.
+      reservation = Hospex.Repo.get_by(Hospex.Channex.Reservation, booking_id: local)
+      assert reservation.status == "pending"
+      assert reservation.pending_revision["amount"] == "320.00"
+      assert reservation.conflicts != []
     end
 
     test "modified revision with an unmapped room type is not acked (retries)" do
