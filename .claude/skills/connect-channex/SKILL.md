@@ -86,9 +86,14 @@ gotchas baked in.
 - **The feed is account-wide.** Revisions for properties without a
   local link are acked + skipped, so stray test properties on the same
   account can't wedge the poller.
-- **`modified` revisions are logged + acked but NOT applied** — OTA
-  modifications need human reconciliation. Tell the user when one
-  appears in the logs.
+- **`modified` revisions are reconciled, not blindly applied.**
+  Structure-preserving changes (same room-type multiset) apply
+  automatically (dates/occupancy/price/contact) and log an
+  `:ota_modified` event; structural changes (room added/removed/retyped)
+  are recorded as an `:ota_reconcile` event on the booking history for a
+  human and acked (no redelivery storm); an unmapped room type stays
+  un-acked to retry. A `modified` for a booking with no local link is
+  treated as `new`.
 - **Overbooking is accepted, not refused.** If no room is free, the
   booking still ingests into the first room and the calendar's
   overbooking lane flags it — a channel-manager booking must never be
