@@ -197,6 +197,8 @@ defmodule HospexWeb.BookingForm do
       |> normalize_dates()
       |> maybe_reprice(socket.assigns.plan, target)
       |> snapshot_current_stay()
+      # Any edit invalidates a prior overbook confirm — re-check on next save.
+      |> Map.drop([:conflict, :confirm_overbook])
 
     assign(socket, :new_booking, f)
   end
@@ -309,6 +311,26 @@ defmodule HospexWeb.BookingForm do
   def save(%{assigns: %{new_booking: f}} = socket, reload_fn) when not is_nil(f) do
     avail  = availability_for_type(socket, f.type_id, f.start_date, f.end_date, exclude_booking_id: f.edit_id)
     nights = Date.diff(f.end_date, f.start_date)
+    # Availability is enforced by the Bookings context; the form only blocks
+    # on name/dates. A real conflict comes back from the write and turns the
+    # save button into a one-more-click "Overbook anyway" confirm.
+    force? = Map.get(f, :confirm_overbook, false)
+
+    # Resolve the concrete room for create/add-room (edit uses per-stay rooms).
+    # Prefer a free room; if none (overbooking) fall back to the first of the
+    # type so a confirmed overbook still lands somewhere. nil only when the
+    # type has no rooms at all.
+    final_room_id =
+      cond do
+        f.room_id != "auto" ->
+          f.room_id
+
+        true ->
+          case Enum.find(avail.by_room, fn {_id, st} -> st == :free end) do
+            {id, _} -> id
+            nil -> avail.by_room |> Map.keys() |> List.first()
+          end
+      end
 
     cond do
       # Lead contact is required for new + edit. Add-room reuses the
@@ -319,17 +341,11 @@ defmodule HospexWeb.BookingForm do
       nights < 1 ->
         {:error, assign(socket, :action_flash, "Check-out must be after check-in")}
 
-      not room_ok?(f, avail) ->
-        {:error, assign(socket, :action_flash, "Select a room with availability")}
+      # Create / add-room need a concrete room; nil means the type has none.
+      is_nil(f.edit_id) and is_nil(final_room_id) ->
+        {:error, assign(socket, :action_flash, "No rooms of this type — pick a room")}
 
       true ->
-        final_room_id =
-          if f.room_id == "auto" do
-            avail.by_room |> Enum.find(fn {_id, st} -> st == :free end) |> elem(0)
-          else
-            f.room_id
-          end
-
         cond do
           # Edit mode — patch booking-level fields once, and every staged
           # stay's per-room data. Other stays (untouched) stay as-is.
@@ -354,17 +370,19 @@ defmodule HospexWeb.BookingForm do
                 {stay_id, build_stay_save_attrs(socket, f, sf)}
               end)
 
-            # The form gates on room_ok? above; force past the context guard
-            # (a confirm-anyway flow replaces this hard gate in a follow-up).
-            :ok = Bookings.update_multi_stay_booking(f.edit_id, booking_attrs, stays_attrs, force: true)
+            case Bookings.update_multi_stay_booking(f.edit_id, booking_attrs, stays_attrs, force: force?) do
+              :ok ->
+                socket =
+                  socket
+                  |> reload_fn.()
+                  |> assign(:new_booking, nil)
+                  |> assign(:action_flash, "✓ Booking updated · #{map_size(stays_attrs)} room#{if map_size(stays_attrs) != 1, do: "s"} saved")
 
-            socket =
-              socket
-              |> reload_fn.()
-              |> assign(:new_booking, nil)
-              |> assign(:action_flash, "✓ Booking updated · #{map_size(stays_attrs)} room#{if map_size(stays_attrs) != 1, do: "s"} saved")
+                {:ok, socket, {:reopen_booking, f.edit_id}}
 
-            {:ok, socket, {:reopen_booking, f.edit_id}}
+              {:error, {:conflict, stays}} ->
+                {:error, flag_overbook(socket, f, stays)}
+            end
 
           # Add-room mode — append another stay onto an existing booking.
           not is_nil(f.add_to_id) ->
@@ -377,29 +395,45 @@ defmodule HospexWeb.BookingForm do
               check_out:  Date.add(f.start_date, nights),
               subtotal:   nb_total(f)
             }
-            {:ok, new_stay_id} = Bookings.add_stay_to_booking(f.add_to_id, attrs, force: true)
 
-            socket =
-              socket
-              |> reload_fn.()
-              |> assign(:new_booking, nil)
-              |> assign(:action_flash, "✓ Room added to booking")
+            case Bookings.add_stay_to_booking(f.add_to_id, attrs, force: force?) do
+              {:ok, new_stay_id} ->
+                socket =
+                  socket
+                  |> reload_fn.()
+                  |> assign(:new_booking, nil)
+                  |> assign(:action_flash, "✓ Room added to booking")
 
-            {:ok, socket, {:reopen_stay, new_stay_id}}
+                {:ok, socket, {:reopen_stay, new_stay_id}}
+
+              {:error, {:conflict, stays}} ->
+                {:error, flag_overbook(socket, f, stays)}
+            end
 
           # Fresh booking.
           true ->
             attrs = add_new_booking_attrs(f, nights, final_room_id)
-            {:ok, _view, new_stay_id} = Bookings.create_simple_booking(attrs, force: true)
 
-            socket =
-              socket
-              |> reload_fn.()
-              |> assign(:new_booking, nil)
-              |> assign(:action_flash, "✓ Booking created · opening for edit")
+            case Bookings.create_simple_booking(attrs, force: force?) do
+              {:ok, _view, new_stay_id} ->
+                socket =
+                  socket
+                  |> reload_fn.()
+                  |> assign(:new_booking, nil)
+                  |> assign(:action_flash, "✓ Booking created · opening for edit")
 
-            {:ok, socket, {:reopen_stay, new_stay_id}}
+                {:ok, socket, {:reopen_stay, new_stay_id}}
+
+              {:error, {:conflict, stays}} ->
+                {:error, flag_overbook(socket, f, stays)}
+            end
         end
     end
+  end
+
+  # First conflicting save: stash the clash and arm the "Overbook anyway"
+  # confirm. The next save carries `confirm_overbook` and forces through.
+  defp flag_overbook(socket, f, stays) do
+    assign(socket, :new_booking, f |> Map.put(:conflict, stays) |> Map.put(:confirm_overbook, true))
   end
 end
