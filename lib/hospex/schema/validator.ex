@@ -86,7 +86,7 @@ defmodule Hospex.Schema.Validator do
   end
 
   defp extract_schema_version(_data) do
-    {:error, [Errors.field_error("schema_version", "required field is missing")]}
+    {:error, [Errors.field_error("schema_version", "schema_version is a required field and is missing")]}
   end
 
   defp parse_major_version(version) do
