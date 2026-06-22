@@ -7,6 +7,7 @@ defmodule HospexWeb.BookingsLive do
   import HospexWeb.BookingFormComponents, except: [maybe_put: 3, maybe_put: 4, to_int: 1]
 
   alias Hospex.Bookings
+  alias Hospex.Channex
   alias Hospex.Content.{BookingDetails, Pricing}
   alias HospexWeb.BookingForm
 
@@ -188,6 +189,25 @@ defmodule HospexWeb.BookingsLive do
   end
 
   def handle_event("cancel_booking", _, socket), do: {:noreply, socket}
+
+  # ── OTA reconciliation (Accept / Deny) ────────────────────────
+
+  def handle_event("accept_reconciliation", %{"id" => id}, socket),
+    do: {:noreply, resolve_reconciliation(socket, id, :accept)}
+
+  def handle_event("deny_reconciliation", %{"id" => id}, socket),
+    do: {:noreply, resolve_reconciliation(socket, id, :deny)}
+
+  defp resolve_reconciliation(socket, id, action) do
+    flash =
+      case Channex.resolve_reconciliation(to_int(id), action) do
+        {:ok, :accept} -> "✓ Applied channel changes"
+        {:ok, :deny}   -> "✓ Kept your version"
+        {:error, _}    -> "Could not resolve the change"
+      end
+
+    socket |> load() |> assign(:action_flash, flash)
+  end
 
   # ── Block (hold) settings form ────────────────────────────────
 
@@ -592,7 +612,8 @@ defmodule HospexWeb.BookingsLive do
           multi_room: length(booking.stays) > 1,
           details:    details,
           txns:       merge_txns(BookingDetails.txns_for(booking, today), booking),
-          events:     real_events(booking, today)
+          events:     real_events(booking, today),
+          reconciliation: Channex.pending_reconciliation(booking.id)
         }
       end
 

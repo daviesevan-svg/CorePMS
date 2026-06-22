@@ -4,6 +4,7 @@ defmodule HospexWeb.CalendarLive do
   import HospexWeb.BookingDrawerComponents
   import HospexWeb.BookingFormComponents
 
+  alias Hospex.Channex
   alias Hospex.Content.{BookingDetails, Pricing}
   alias Hospex.Bookings
   alias HospexWeb.BookingForm
@@ -464,6 +465,25 @@ defmodule HospexWeb.CalendarLive do
   end
 
   def handle_event("cancel_booking", _, socket), do: {:noreply, socket}
+
+  # ── OTA reconciliation (Accept / Deny) ────────────────────────
+
+  def handle_event("accept_reconciliation", %{"id" => id}, socket),
+    do: {:noreply, resolve_reconciliation(socket, id, :accept)}
+
+  def handle_event("deny_reconciliation", %{"id" => id}, socket),
+    do: {:noreply, resolve_reconciliation(socket, id, :deny)}
+
+  defp resolve_reconciliation(socket, id, action) do
+    flash =
+      case Channex.resolve_reconciliation(String.to_integer(id), action) do
+        {:ok, :accept} -> "✓ Applied channel changes"
+        {:ok, :deny}   -> "✓ Kept your version"
+        {:error, _}    -> "Could not resolve the change"
+      end
+
+    socket |> reload_bookings() |> refresh_selected_booking() |> assign(:action_flash, flash)
+  end
 
   def handle_event("start_move_room", %{"stay_id" => sid}, socket) do
     stay_id = String.to_integer(sid)
@@ -1213,7 +1233,8 @@ defmodule HospexWeb.CalendarLive do
           multi_room: length(booking.stays) > 1,
           details:    details,
           txns:       merge_txns(BookingDetails.txns_for(booking, today), booking),
-          events:     real_events(booking, today)
+          events:     real_events(booking, today),
+          reconciliation: Channex.pending_reconciliation(booking.id)
         }
       else
         nil

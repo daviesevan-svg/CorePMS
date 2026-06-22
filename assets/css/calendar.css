@@ -782,6 +782,30 @@ button { font-family: inherit; color: inherit; }
 .dr-action.primary:hover { background: oklch(14% 0.012 260); }
 
 /* Tabs */
+/* OTA reconciliation banner (channel changed a hotel-touched booking) */
+.dr-reconcile {
+  margin: 12px; padding: 12px 14px;
+  background: color-mix(in srgb, var(--warn, #d08a32) 10%, var(--bg-elev));
+  border: 1px solid color-mix(in srgb, var(--warn, #d08a32) 40%, var(--line));
+  border-radius: 10px; flex-shrink: 0;
+}
+.dr-reconcile-head {
+  display: flex; align-items: center; gap: 7px;
+  font-weight: 600; font-size: 13px; color: var(--ink);
+}
+.dr-reconcile-head svg { color: var(--warn, #d08a32); flex-shrink: 0; }
+.dr-reconcile-sub { font-size: 12px; color: var(--ink-3); margin: 3px 0 10px 21px; }
+.dr-reconcile-diffs { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.dr-reconcile-row {
+  display: grid; grid-template-columns: 72px 1fr auto 1fr; align-items: center; gap: 8px;
+  font-size: 12px;
+}
+.dr-reconcile-field { color: var(--ink-3); text-transform: uppercase; letter-spacing: .03em; font-size: 10px; }
+.dr-reconcile-from { color: var(--ink-2); text-decoration: line-through; opacity: .7; }
+.dr-reconcile-to { color: var(--ink); font-weight: 500; }
+.dr-reconcile-arrow { color: var(--ink-3); }
+.dr-reconcile-actions { display: flex; gap: 8px; }
+
 .dr-tabs {
   display: flex; gap: 2px; padding: 8px 12px 0;
   border-bottom: 1px solid var(--line); flex-shrink: 0;
