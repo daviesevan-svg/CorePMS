@@ -582,5 +582,75 @@ defmodule Hospex.ChannexTest do
 
       assert {:error, {:unmapped_room, "rt-unknown"}} = Ingest.apply_revision(rev)
     end
+
+    # Create → hotel edits locally → OTA modification arrives → flagged.
+    # Returns the local booking id.
+    defp flagged_booking do
+      assert {:ok, :created} = Ingest.apply_revision(revision(%{}))
+      local = Channex.local_id("booking", "cx-booking-1") |> String.to_integer()
+      [stay] = Bookings.get_booking(local).stays
+
+      :ok =
+        Bookings.update_multi_stay_booking(
+          local,
+          %{lead_guest: "Marie Curie"},
+          %{stay.id => %{room_id: stay.room_id, guest_name: stay.guest_name, adults: stay.adults, kids: stay.kids, check_in: ~D[2027-03-15], check_out: ~D[2027-03-17], subtotal: 260}}
+        )
+
+      assert {:ok, :flagged} =
+               Ingest.apply_revision(
+                 revision(%{
+                   "status" => "modified",
+                   "amount" => "320.00",
+                   "rooms" => [%{"checkin_date" => "2027-03-11", "checkout_date" => "2027-03-13", "room_type_id" => "rt-classic", "occupancy" => %{"adults" => 2, "children" => 0}}]
+                 })
+               )
+
+      local
+    end
+
+    test "flagging creates a high-priority task linked to the booking" do
+      local = flagged_booking()
+
+      res = Channex.pending_reconciliation(local)
+      assert res
+      task = Hospex.Tasks.get_task(res.task_id)
+      assert task.booking_id == local
+      assert task.priority == "high"
+      refute task.done
+    end
+
+    test "accepting a reconciliation applies the OTA revision and completes the task" do
+      local = flagged_booking()
+      res = Channex.pending_reconciliation(local)
+
+      assert {:ok, :accept} = Channex.resolve_reconciliation(local, :accept)
+
+      booking = Bookings.get_booking(local)
+      assert [s] = booking.stays
+      assert s.check_in == ~D[2027-03-11]
+      assert booking.total == 320
+      refute Channex.pending_reconciliation(local)
+      assert Hospex.Tasks.get_task(res.task_id).done
+    end
+
+    test "denying a reconciliation keeps the local booking and completes the task" do
+      local = flagged_booking()
+      res = Channex.pending_reconciliation(local)
+
+      assert {:ok, :deny} = Channex.resolve_reconciliation(local, :deny)
+
+      booking = Bookings.get_booking(local)
+      assert [s] = booking.stays
+      assert s.check_in == ~D[2027-03-15]
+      refute Channex.pending_reconciliation(local)
+      assert Hospex.Tasks.get_task(res.task_id).done
+    end
+
+    test "resolving when nothing is pending returns an error" do
+      assert {:ok, :created} = Ingest.apply_revision(revision(%{}))
+      local = Channex.local_id("booking", "cx-booking-1") |> String.to_integer()
+      assert {:error, :not_pending} = Channex.resolve_reconciliation(local, :accept)
+    end
   end
 end
