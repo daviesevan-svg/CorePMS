@@ -76,7 +76,10 @@ defmodule HospexWeb.BookingFormComponents do
         <% room_ok     = nb.room_id == nb.original_room_id or
                          (nb.room_id == "auto" and avail.avail > 0) or
                          Map.get(avail.by_room, nb.room_id) == :free %>
-        <% can_save    = name_ok and dates_ok and room_ok %>
+        <%!-- Availability is enforced server-side on save (with a confirm
+             step), so the button only requires a name + valid dates. --%>
+        <% can_save    = name_ok and dates_ok %>
+        <% overbook?   = Map.get(nb, :confirm_overbook, false) %>
         <% type_avails = for g <- @room_groups, into: %{}, do: {g.id, availability_for_type(avail_assigns, g.id, nb.start_date, nb.end_date, nb_excl)} %>
 
         <%!-- Toolbar (matches the booking drawer) --%>
@@ -534,19 +537,25 @@ defmodule HospexWeb.BookingFormComponents do
 
         <%!-- Footer --%>
         <div class="dr-footer nb-footer">
-          <span class="dr-footer-msg">
+          <span class={"dr-footer-msg" <> if(overbook? or not room_ok, do: " warn", else: "")}>
             <%= cond do %>
               <% not name_ok -> %>Guest name is required
               <% not dates_ok -> %>Check-out must be after check-in
-              <% not room_ok -> %>Select a room with availability
+              <% overbook? -> %>⚠ Overlaps an existing booking — confirm to overbook
+              <% not room_ok -> %>This room looks taken on these dates
               <% true -> %><%= nights %> night<%= if nights != 1, do: "s" %> · €<%= total %>
             <% end %>
           </span>
           <button class="dr-action" phx-click="new_booking_cancel">Cancel</button>
-          <button class={"dr-action primary" <> if(can_save, do: "", else: " is-disabled")}
+          <button class={"dr-action " <> cond do
+                    not can_save -> "primary is-disabled"
+                    overbook?    -> "danger"
+                    true         -> "primary"
+                  end}
                   phx-click={can_save && "new_booking_save"}>
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="m4 8 3 3 5-6"/></svg>
             <%= cond do
+                  overbook?    -> "Overbook anyway"
                   nb.edit_id   -> "Save changes"
                   nb.add_to_id -> "Add room"
                   true         -> "Save & open"
