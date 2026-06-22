@@ -26,6 +26,7 @@ defmodule Hospex.Bookings.Store do
                         notes_updated block_created block_release_changed
                         stay_edited booking_edited stay_rescheduled
                         stay_moved room_added booking_cancelled
+                        ota_modified ota_reconcile
                         payment refund charge)a
   @known_txn_kinds   ~w(payment refund charge)a
 

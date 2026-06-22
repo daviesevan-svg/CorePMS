@@ -79,6 +79,17 @@ defmodule Hospex.Bookings do
     |> ok_and_broadcast(booking_id)
   end
 
+  @doc """
+  Append an audit event to a booking without mutating it. Used to record
+  externally-driven facts on the timeline — e.g. an OTA modification that
+  was applied automatically, or one that needs manual reconciliation.
+  """
+  def log_event(booking_id, kind, summary) when is_atom(kind) and is_binary(summary) do
+    insert_event!(booking_id, kind, summary: summary)
+    broadcast({:booking_updated, booking_id})
+    :ok
+  end
+
   # ── Subscription / broadcast ─────────────────────────────────
 
   def subscribe do

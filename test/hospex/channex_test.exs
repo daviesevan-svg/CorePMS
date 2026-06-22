@@ -441,5 +441,78 @@ defmodule Hospex.ChannexTest do
 
       assert Enum.uniq(rooms) == rooms
     end
+
+    test "modified revision applies new dates, occupancy and price to the linked booking" do
+      assert {:ok, :created} = Ingest.apply_revision(revision(%{}))
+      local = Channex.local_id("booking", "cx-booking-1") |> String.to_integer()
+      room_before = hd(Bookings.get_booking(local).stays).room_id
+
+      rev =
+        revision(%{
+          "status" => "modified",
+          "amount" => "300.00",
+          "rooms" => [
+            %{
+              "checkin_date" => "2027-03-11",
+              "checkout_date" => "2027-03-14",
+              "room_type_id" => "rt-classic",
+              "occupancy" => %{"adults" => 1, "children" => 1}
+            }
+          ]
+        })
+
+      assert {:ok, :modified} = Ingest.apply_revision(rev)
+
+      booking = Bookings.get_booking(local)
+      assert booking.total == 300
+      assert [stay] = booking.stays
+      assert stay.check_in == ~D[2027-03-11]
+      assert stay.nights == 3
+      assert stay.adults == 1
+      assert stay.kids == 1
+      # same physical room is kept; only its dates/party/price change
+      assert stay.room_id == room_before
+      assert Enum.any?(booking.events, &(&1.kind == :ota_modified))
+    end
+
+    test "modified revision for an unlinked booking is created" do
+      rev = revision(%{"status" => "modified", "booking_id" => "cx-mod-new"})
+      assert {:ok, :created} = Ingest.apply_revision(rev)
+      assert Channex.local_id("booking", "cx-mod-new")
+    end
+
+    test "modified revision that changes room structure is flagged, not applied" do
+      {:ok, _} = Channex.put_link("room_type", "deluxe-sea-view", "rt-deluxe")
+      assert {:ok, :created} = Ingest.apply_revision(revision(%{}))
+      local = Channex.local_id("booking", "cx-booking-1") |> String.to_integer()
+      stays_before = length(Bookings.get_booking(local).stays)
+
+      rev =
+        revision(%{
+          "status" => "modified",
+          "rooms" => [
+            %{"checkin_date" => "2027-03-10", "checkout_date" => "2027-03-12", "room_type_id" => "rt-classic", "occupancy" => %{"adults" => 2}},
+            %{"checkin_date" => "2027-03-10", "checkout_date" => "2027-03-12", "room_type_id" => "rt-deluxe", "occupancy" => %{"adults" => 2}}
+          ]
+        })
+
+      assert {:ok, :flagged} = Ingest.apply_revision(rev)
+
+      booking = Bookings.get_booking(local)
+      assert length(booking.stays) == stays_before
+      assert Enum.any?(booking.events, &(&1.kind == :ota_reconcile))
+    end
+
+    test "modified revision with an unmapped room type is not acked (retries)" do
+      assert {:ok, :created} = Ingest.apply_revision(revision(%{}))
+
+      rev =
+        revision(%{
+          "status" => "modified",
+          "rooms" => [%{"checkin_date" => "2027-03-10", "checkout_date" => "2027-03-12", "room_type_id" => "rt-unknown"}]
+        })
+
+      assert {:error, {:unmapped_room, "rt-unknown"}} = Ingest.apply_revision(rev)
+    end
   end
 end
