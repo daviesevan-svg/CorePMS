@@ -34,6 +34,7 @@ defmodule Hospex.Channex.Ingest do
   alias Hospex.Channex.{Client, Reconcile, Reservation}
   alias Hospex.Content.Property
   alias Hospex.Repo
+  alias Hospex.Tasks
 
   require Logger
 
@@ -91,8 +92,6 @@ defmodule Hospex.Channex.Ingest do
   defp foreign_property?(_), do: false
 
   defp do_apply(status, local, attrs) do
-    channex_booking_id = attrs["booking_id"]
-
     case {status, local} do
       {"cancelled", nil} ->
         {:ok, :skipped}
@@ -204,10 +203,10 @@ defmodule Hospex.Channex.Ingest do
             if base && Reconcile.hotel_touched?(base, local) do
               flag(booking, attrs, Reconcile.diff(local, incoming))
             else
-              apply_full(booking, incoming, attrs)
-              mark_synced(booking_id, attrs["booking_id"], attrs)
-              Bookings.log_event(booking_id, :ota_modified, modification_summary(attrs))
-              {:ok, :modified}
+              case apply_and_sync(booking, attrs) do
+                :ok -> {:ok, :modified}
+                {:error, _} = err -> err
+              end
             end
 
           # Unmapped room type is a config gap, not a conflict: leave it
@@ -215,6 +214,60 @@ defmodule Hospex.Channex.Ingest do
           {:error, _} = err ->
             err
         end
+    end
+  end
+
+  @doc """
+  Apply an OTA revision to a booking wholesale (add/update/remove stays +
+  booking contact), advance the merge base to it, and log `:ota_modified`.
+  Shared by the auto-apply path and by accepting a parked reconciliation.
+  """
+  def apply_and_sync(booking, attrs) do
+    case normalize_revision(attrs, Property.room_groups()) do
+      {:ok, incoming} ->
+        apply_full(booking, incoming, attrs)
+        mark_synced(booking.id, attrs["booking_id"], attrs)
+        Bookings.log_event(booking.id, :ota_modified, modification_summary(attrs))
+        :ok
+
+      {:error, _} = err ->
+        err
+    end
+  end
+
+  @doc """
+  Resolve a parked reconciliation. `:accept` applies the pending OTA
+  revision to the booking; `:deny` keeps the local booking. Either way the
+  merge base advances to the pending revision (so the same change won't
+  re-flag) and the linked task is completed.
+  """
+  def resolve_reconciliation(booking_id, action) when action in [:accept, :deny] do
+    case Repo.get_by(Reservation, booking_id: booking_id) do
+      %Reservation{status: "pending", pending_revision: pending} = res when is_map(pending) ->
+        case Bookings.get_booking(booking_id) do
+          nil ->
+            {:error, :booking_gone}
+
+          booking ->
+            result =
+              case action do
+                :accept ->
+                  apply_and_sync(booking, pending)
+
+                :deny ->
+                  mark_synced(booking_id, res.channex_booking_id, pending)
+                  Bookings.log_event(booking_id, :ota_reconcile, "OTA modification denied — local kept")
+                  :ok
+              end
+
+            case result do
+              :ok -> complete_reconcile_task(res); {:ok, action}
+              {:error, _} = err -> err
+            end
+        end
+
+      _ ->
+        {:error, :not_pending}
     end
   end
 
@@ -373,12 +426,19 @@ defmodule Hospex.Channex.Ingest do
     end)
   end
 
-  defp mark_pending(booking_id, channex_booking_id, incoming_attrs, conflicts) do
+  defp mark_pending(booking_id, channex_booking_id, incoming_attrs, conflicts, task_id) do
     put_reservation(booking_id, channex_booking_id, fn existing ->
       # Keep the existing base while pending so the diff stays meaningful;
       # seed it from the incoming revision if we somehow have none yet.
       base = (existing && existing.base_revision) || incoming_attrs
-      %{base_revision: base, pending_revision: incoming_attrs, conflicts: conflicts, status: "pending"}
+
+      %{
+        base_revision: base,
+        pending_revision: incoming_attrs,
+        conflicts: conflicts,
+        status: "pending",
+        task_id: task_id
+      }
     end)
   end
 
@@ -393,12 +453,46 @@ defmodule Hospex.Channex.Ingest do
   end
 
   defp flag(booking, attrs, conflicts \\ []) do
-    mark_pending(booking.id, attrs["booking_id"], attrs, conflicts)
+    existing = Repo.get_by(Reservation, booking_id: booking.id)
+    task_id = ensure_reconcile_task(booking, existing)
+    mark_pending(booking.id, attrs["booking_id"], attrs, conflicts, task_id)
 
     summary = "OTA modification needs reconciliation · ota_ref #{attrs["ota_reservation_code"]}"
     Logger.warning("Channex booking #{booking.id}: #{summary}")
     Bookings.log_event(booking.id, :ota_reconcile, summary)
     {:ok, :flagged}
+  end
+
+  # Reuse the open task if one already exists for this booking's pending
+  # reconciliation; otherwise create a high-priority one linked to the
+  # booking so it surfaces in the staff task list.
+  defp ensure_reconcile_task(booking, existing) do
+    case existing && existing.task_id && Tasks.get_task(existing.task_id) do
+      %{done: false, id: id} ->
+        id
+
+      _ ->
+        {:ok, task} =
+          Tasks.create_task(%{
+            title: "Reconcile OTA change · #{booking.ref}",
+            description: "An OTA modification needs review — open the booking to Accept or Deny the change.",
+            priority: "high",
+            booking_id: booking.id
+          })
+
+        task.id
+    end
+  end
+
+  defp complete_reconcile_task(%Reservation{task_id: nil}), do: :ok
+
+  defp complete_reconcile_task(%Reservation{task_id: id}) do
+    case Tasks.get_task(id) do
+      %{done: false} -> Tasks.complete_task(id, "Resolved via reconciliation")
+      _ -> :ok
+    end
+
+    :ok
   end
 
   # Parse each Channex room into a normalized map, resolving the local

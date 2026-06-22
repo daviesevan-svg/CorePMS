@@ -25,7 +25,7 @@ defmodule Hospex.Channex do
   import Ecto.Query
 
   alias Hospex.Bookings
-  alias Hospex.Channex.{Client, Link}
+  alias Hospex.Channex.{Client, Ingest, Link, Reservation}
   alias Hospex.Content.{Pricing, Property}
   alias Hospex.Repo
 
@@ -74,6 +74,21 @@ defmodule Hospex.Channex do
     Repo.delete_all(from l in Link, where: l.kind == ^kind and l.local_id == ^to_string(local_id))
     :ok
   end
+
+  # ── Reconciliation (inbound OTA modifications) ────────────────
+
+  @doc "The pending reconciliation for a booking (an OTA `modified` the hotel must confirm), or nil."
+  def pending_reconciliation(booking_id) do
+    Repo.get_by(Reservation, booking_id: booking_id, status: "pending")
+  end
+
+  @doc """
+  Resolve a pending reconciliation: `:accept` applies the OTA's proposed
+  revision to the booking, `:deny` keeps the local booking. Either way the
+  merge base advances and the linked task is completed. Returns
+  `{:ok, :accept | :deny}` or `{:error, :not_pending | :booking_gone | reason}`.
+  """
+  defdelegate resolve_reconciliation(booking_id, action), to: Ingest
 
   @doc """
   Connection summary for the Channels settings page: whether the

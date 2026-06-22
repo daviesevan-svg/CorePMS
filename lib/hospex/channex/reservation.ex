@@ -25,13 +25,14 @@ defmodule Hospex.Channex.Reservation do
     field :pending_revision, :map
     field :conflicts, {:array, :map}, default: []
     field :status, :string, default: "synced"
+    field :task_id, :id
 
     belongs_to :booking, Booking
 
     timestamps()
   end
 
-  @castable ~w(booking_id channex_booking_id base_revision pending_revision conflicts status)a
+  @castable ~w(booking_id channex_booking_id base_revision pending_revision conflicts status task_id)a
 
   def changeset(reservation, attrs) do
     reservation
